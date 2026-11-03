@@ -16,16 +16,21 @@
 /// For Enter, paste and Backspace the edit itself is not applied. The callback
 /// runs the operation, and the caller then pushes the result back in with
 /// [setModel].
+///
+/// The quantity prefix and the trailing price are drawn with a subtle
+/// emphasis in [buildTextSpan] (§3, the + button). They stay plain text.
 library;
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
+import '../model/amounts.dart';
+import '../model/number_parser.dart';
 import '../model/operations.dart' show isPlainPaste;
 
 const sentinel = '​';
 
 class SentinelController extends TextEditingController {
-  SentinelController({String text = ''})
+  SentinelController({String text = '', this.numberContext})
     : super.fromValue(
         TextEditingValue(
           text: sentinel + _clean(text),
@@ -48,7 +53,77 @@ class SentinelController extends TextEditingController {
   /// current text.
   void Function(int start, int end, String pasted)? onPaste;
 
+  /// How numbers are read, for highlighting the quantity and the price. No
+  /// highlighting when null.
+  NumberContext Function()? numberContext;
+
+  /// Whether the item is DONE or FAILED. The quantity is then not drawn in
+  /// the accent colour, so the muted text stays uniform.
+  bool muted = false;
+
   bool _internal = false;
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final ctx = numberContext?.call();
+    final offset = _sentinelLength(text);
+    final model = modelText;
+    final quantity = ctx == null ? null : parseQuantity(model, ctx);
+    final price = ctx == null ? null : parsePrice(model, ctx);
+    final composing = withComposing && value.isComposingRangeValid
+        ? value.composing
+        : TextRange.empty;
+    if (quantity == null && price == null && composing.isCollapsed) {
+      return super.buildTextSpan(
+        context: context,
+        style: style,
+        withComposing: withComposing,
+      );
+    }
+
+    final theme = Theme.of(context);
+    // The quantity prefix covers the number and its `x`.
+    final qStart = quantity == null ? -1 : quantity.start + offset;
+    final qEnd = quantity == null ? -1 : quantity.end + 1 + offset;
+    final pStart = price == null ? -1 : price.start + offset;
+    final pEnd = price == null ? -1 : price.end + offset;
+    final quantityStyle = TextStyle(
+      fontWeight: FontWeight.w600,
+      color: muted ? null : theme.colorScheme.primary,
+    );
+    const priceStyle = TextStyle(
+      fontFeatures: [FontFeature.tabularFigures()],
+      fontWeight: FontWeight.w500,
+    );
+    const composingStyle = TextStyle(decoration: TextDecoration.underline);
+
+    final cuts = <int>{
+      0,
+      text.length,
+      for (final o in [qStart, qEnd, pStart, pEnd])
+        if (o >= 0) o,
+      if (!composing.isCollapsed) ...[composing.start, composing.end],
+    }.where((o) => o >= 0 && o <= text.length).toList()..sort();
+
+    final children = <TextSpan>[];
+    for (var i = 0; i + 1 < cuts.length; i++) {
+      final a = cuts[i];
+      final b = cuts[i + 1];
+      if (a == b) continue;
+      var s = const TextStyle();
+      if (a >= qStart && b <= qEnd) s = s.merge(quantityStyle);
+      if (a >= pStart && b <= pEnd) s = s.merge(priceStyle);
+      if (a >= composing.start && b <= composing.end) {
+        s = s.merge(composingStyle);
+      }
+      children.add(TextSpan(text: text.substring(a, b), style: s));
+    }
+    return TextSpan(style: style, children: children);
+  }
 
   /// The text without the sentinel.
   String get modelText => text.substring(_sentinelLength(text));

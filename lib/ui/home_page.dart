@@ -132,6 +132,7 @@ class _HomePageState extends State<HomePage> {
       for (final item in list.items) {
         itemIds.add(item.id);
         final field = _items.putIfAbsent(item.id, () => _createItemField(item));
+        field.controller.muted = item.state != ItemState.newItem;
         if (field.controller.modelText != item.text) {
           field.controller.setModel(item.text);
         }
@@ -164,7 +165,10 @@ class _HomePageState extends State<HomePage> {
 
   _ItemField _createItemField(TodoItem item) {
     final id = item.id;
-    final controller = SentinelController(text: item.text);
+    final controller = SentinelController(
+      text: item.text,
+      numberContext: () => _document.numberContext,
+    )..muted = item.state != ItemState.newItem;
     controller.onTextChanged = (text) => _document.setItemText(id, text);
     controller.onEnter = (text, offset) => _document.enter(id, text, offset);
     controller.onBackspaceAtStart = () => _document.backspaceAtStart(id);
@@ -282,6 +286,7 @@ class _HomePageState extends State<HomePage> {
           controller: f.controller,
           focusNode: f.focusNode,
           onCycleState: () => _document.cycleState(item.id),
+          onIncrement: () => _document.incrementQuantity(item.id),
         );
       case _SpaceRow():
         return GestureDetector(

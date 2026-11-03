@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import '../model/todo_document.dart';
 import 'sentinel_controller.dart';
 
-/// One item: state icon + wrapping text field (plan §3).
-///
-/// The + button and quantity/price highlighting arrive in milestone 4.
+/// One item: state icon + wrapping text field + quantity button (plan §3).
 class ItemRow extends StatelessWidget {
   const ItemRow({
     super.key,
@@ -13,12 +11,16 @@ class ItemRow extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.onCycleState,
+    required this.onIncrement,
   });
 
   final TodoItem item;
   final SentinelController controller;
   final FocusNode focusNode;
   final VoidCallback onCycleState;
+
+  /// The + button. Hidden when null (selection mode, §6).
+  final VoidCallback? onIncrement;
 
   static IconData iconFor(ItemState state) => switch (state) {
     ItemState.newItem => Icons.check_box_outline_blank,
@@ -58,7 +60,11 @@ class ItemRow extends StatelessWidget {
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.only(top: 12, bottom: 12, right: 16),
+            padding: EdgeInsets.only(
+              top: 12,
+              bottom: 12,
+              right: onIncrement == null ? 16 : 0,
+            ),
             child: TextField(
               controller: controller,
               focusNode: focusNode,
@@ -70,6 +76,12 @@ class ItemRow extends StatelessWidget {
             ),
           ),
         ),
+        if (onIncrement != null)
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Add one',
+            onPressed: onIncrement,
+          ),
       ],
     );
   }

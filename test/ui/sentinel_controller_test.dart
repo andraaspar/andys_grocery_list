@@ -1,5 +1,6 @@
+import 'package:andys_grocery_list/model/number_parser.dart';
 import 'package:andys_grocery_list/ui/sentinel_controller.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Simulates an IME update: [text] uses `|` for the cursor, and the sentinel
@@ -114,5 +115,69 @@ void main() {
     c.setModel('Bread');
     expect(log, isEmpty);
     expect(c.modelText, 'Bread');
+  });
+
+  group('highlighting', () {
+    Future<List<(String, TextStyle?)>> spans(
+      WidgetTester tester,
+      String text, {
+      bool muted = false,
+    }) async {
+      final c = SentinelController(
+        text: text,
+        numberContext: () => NumberContext.en,
+      )..muted = muted;
+      addTearDown(c.dispose);
+      late TextSpan span;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              span = c.buildTextSpan(
+                context: context,
+                style: null,
+                withComposing: false,
+              );
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      final out = <(String, TextStyle?)>[];
+      span.visitChildren((s) {
+        if (s is TextSpan && s.text != null) {
+          out.add((s.text!.replaceAll(sentinel, ''), s.style));
+        }
+        return true;
+      });
+      return out.where((e) => e.$1.isNotEmpty).toList();
+    }
+
+    testWidgets('emphasizes the quantity and the price', (tester) async {
+      final s = await spans(tester, '3x Milk 1.29');
+      expect(s.map((e) => e.$1), ['3x', ' Milk ', '1.29']);
+      expect(s[0].$2!.fontWeight, FontWeight.w600);
+      expect(s[0].$2!.color, isNotNull);
+      expect(s[1].$2?.fontWeight, isNull);
+      expect(
+        s[2].$2!.fontFeatures,
+        contains(const FontFeature.tabularFigures()),
+      );
+    });
+
+    testWidgets('plain text has no emphasis', (tester) async {
+      final s = await spans(tester, 'Room 12b');
+      expect(s.map((e) => e.$1).join(), 'Room 12b');
+      for (final e in s) {
+        expect(e.$2?.fontWeight, isNull);
+      }
+    });
+
+    testWidgets('muted items keep their colour', (tester) async {
+      final s = await spans(tester, '2x Milk', muted: true);
+      expect(s[0].$1, '2x');
+      expect(s[0].$2!.fontWeight, FontWeight.w600);
+      expect(s[0].$2!.color, isNull);
+    });
   });
 }

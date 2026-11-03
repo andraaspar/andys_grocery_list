@@ -66,6 +66,12 @@ class DocumentController extends ChangeNotifier {
 
   void cycleState(String itemId) => _apply(ops.cycleState(_doc, itemId));
 
+  /// The + button: adds 1 to the quantity and selects the number.
+  void incrementQuantity(String itemId) {
+    if (_doc.itemById(itemId) == null) return;
+    _apply(ops.incrementQuantity(_doc, itemId, numberContext));
+  }
+
   void renameList(String listId, String name) {
     final i = _doc.listIndexOf(listId);
     if (i < 0 || _doc.lists[i].name == name) return;

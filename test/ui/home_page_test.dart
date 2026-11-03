@@ -261,4 +261,66 @@ void main() {
     await tester.pumpAndSettle();
     expect(hasFocus(tester, itemField('item 79')), isTrue);
   });
+
+  group('the + button', () {
+    Finder plusOf(String text) => find.descendant(
+      of: find.ancestor(of: itemField(text), matching: find.byType(Row)).first,
+      matching: find.byIcon(Icons.add),
+    );
+
+    testWidgets('increments, focuses the field and selects the number', (
+      tester,
+    ) async {
+      final doc = await pump(tester, '# L\n- [ ] Milk\n- [ ] Eggs\n');
+      await tester.tap(plusOf('Milk'));
+      await tester.pumpAndSettle();
+
+      expect(doc.doc.lists[0].items[0].text, '2x Milk');
+      final f = itemField('2x Milk');
+      expect(hasFocus(tester, f), isTrue);
+      expect(tester.testTextInput.isVisible, isTrue);
+      expect(
+        controllerOf(tester, f).modelSelection,
+        const TextSelection(baseOffset: 0, extentOffset: 1),
+      );
+    });
+
+    testWidgets('repeated presses keep the number selected', (tester) async {
+      final doc = await pump(tester, '# L\n- [ ] 8x Milk\n');
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+      }
+      expect(doc.doc.lists[0].items[0].text, '11x Milk');
+      final f = itemField('11x Milk');
+      expect(hasFocus(tester, f), isTrue);
+      expect(
+        controllerOf(tester, f).modelSelection,
+        const TextSelection(baseOffset: 0, extentOffset: 2),
+      );
+    });
+
+    testWidgets('typing replaces the selected number', (tester) async {
+      final doc = await pump(tester, '# L\n- [ ] 1,5x Cheese\n');
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      expect(doc.doc.lists[0].items[0].text, '2,5x Cheese');
+      expect(
+        controllerOf(tester, itemField('2,5x Cheese')).modelSelection,
+        const TextSelection(baseOffset: 0, extentOffset: 3),
+      );
+      await imeUpdate(tester, '6|x Cheese');
+      expect(doc.doc.lists[0].items[0].text, '6x Cheese');
+    });
+
+    testWidgets('moves focus from another item', (tester) async {
+      final doc = await pump(tester, '# L\n- [ ] Milk\n- [ ] \n');
+      await focusItem(tester, 'Milk', 2);
+      await tester.tap(plusOf(''));
+      await tester.pumpAndSettle();
+      expect(doc.doc.lists[0].items[1].text, '2x ');
+      expect(hasFocus(tester, itemField('2x ')), isTrue);
+      expect(hasFocus(tester, itemField('Milk')), isFalse);
+    });
+  });
 }
