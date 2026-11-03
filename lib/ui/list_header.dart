@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'display_options.dart';
 import 'item_row.dart';
 import 'theme.dart';
 
@@ -34,13 +35,19 @@ class ListHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final metrics = RowMetrics.of(context);
     // A Material, not a plain colour, so the menu button's ripple shows.
     return Material(
       color: ListColors.of(context).header,
       child: Padding(
         // The ⋯ menu lines up with the items' + buttons. The grey band is as
         // high above the name as below it.
-        padding: const EdgeInsets.fromLTRB(16, 2, ItemRow.edgePadding, 2),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          metrics.headerPadding,
+          ItemRow.edgePadding,
+          metrics.headerPadding,
+        ),
         child: Row(
           children: [
             Expanded(
@@ -77,13 +84,10 @@ class ListHeader extends StatelessWidget {
             else
               PopupMenuButton<ListAction>(
                 icon: const Icon(Icons.more_horiz),
-                // Same height as an item row.
-                style: IconButton.styleFrom(
-                  visualDensity: const VisualDensity(
-                    horizontal: -2,
-                    vertical: -4,
-                  ),
-                ),
+                // Same size as the items' buttons.
+                iconSize: metrics.iconSize,
+                padding: EdgeInsets.zero,
+                style: metrics.buttonStyle,
                 tooltip: 'List actions',
                 onSelected: onAction,
                 itemBuilder: (context) => const [

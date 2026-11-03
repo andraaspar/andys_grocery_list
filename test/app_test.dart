@@ -265,6 +265,69 @@ void main() {
       );
     });
 
+    testWidgets('spacing and text size change the rows and persist', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri});
+      final storage = FakeStorage({uri: '# L\n- [ ] Milk\n'});
+      await pumpApp(tester, storage);
+      double rowHeight() => tester.getSize(find.byType(ItemRow)).height;
+      double textHeight() => tester.getSize(itemField('Milk')).height;
+      Future<void> pick(String setting, String option) async {
+        await openSettings(tester);
+        await tester.tap(find.text(setting));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SimpleDialog),
+            matching: find.text(option),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(option), findsOneWidget);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      }
+
+      // The default is the dense layout at the normal size: a line 15%
+      // larger than the standard 24 px (text layout rounds it to 28), 4 px
+      // above and below.
+      expect(textHeight(), closeTo(24 * 1.15, 0.5));
+      expect(rowHeight(), textHeight() + 8);
+
+      await pick('Text size', 'Small');
+      expect(textHeight(), 24);
+      expect(rowHeight(), 32);
+
+      await pick('Spacing', 'Roomy');
+      expect(rowHeight(), 48);
+      expect(textHeight(), 24);
+
+      await pick('Text size', 'Larger');
+      expect(textHeight(), 36);
+      expect(rowHeight(), 60);
+      // The state icon grows with the text and stays on its first line.
+      final icon = tester.getRect(rowIcon(Icons.check_box_outline_blank));
+      expect(icon.height, 36);
+      expect(icon.center.dy, tester.getRect(itemField('Milk')).center.dy);
+
+      // So do the app bar's icons, and the bar with them.
+      expect(tester.getSize(find.byIcon(Icons.settings_outlined)).height, 36);
+      expect(tester.getSize(find.byType(AppBar)).height, 68);
+      // The last one is 16 px from the edge at 24 px, so 24 px at 36 px.
+      expect(
+        tester.getSize(find.byType(AppBar)).width -
+            tester.getRect(find.byIcon(Icons.settings_outlined)).right,
+        24,
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('spacing'), 'roomy');
+      expect(prefs.getString('textSize'), 'larger');
+      await restart(tester, storage);
+      expect(rowHeight(), 60);
+    });
+
     testWidgets('changing the locale re-formats totals, not the file', (
       tester,
     ) async {

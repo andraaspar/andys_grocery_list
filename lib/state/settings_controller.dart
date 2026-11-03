@@ -3,8 +3,11 @@ import 'package:intl/number_symbols_data.dart';
 
 import '../model/locale_names.dart';
 import '../storage/settings.dart';
+import '../ui/display_options.dart';
 
-/// The effective number locale: the one chosen in Settings, or the system
+/// The settings that change how the app looks or reads numbers.
+///
+/// The effective number locale is the one chosen in Settings, or the system
 /// locale (plan §7). The owner calls [systemLocaleChanged] from
 /// `didChangeLocales`.
 class SettingsController extends ChangeNotifier {
@@ -30,6 +33,22 @@ class SettingsController extends ChangeNotifier {
   Future<void> setLocaleOverride(String? locale) async {
     if (locale == localeOverride) return;
     await _settings.setLocale(locale);
+    notifyListeners();
+  }
+
+  Spacing get spacing => Spacing.fromName(_settings.spacing);
+
+  Future<void> setSpacing(Spacing spacing) async {
+    if (spacing == this.spacing) return;
+    await _settings.setSpacing(spacing.name);
+    notifyListeners();
+  }
+
+  FontSize get fontSize => FontSize.fromName(_settings.fontSize);
+
+  Future<void> setFontSize(FontSize fontSize) async {
+    if (fontSize == this.fontSize) return;
+    await _settings.setFontSize(fontSize.name);
     notifyListeners();
   }
 

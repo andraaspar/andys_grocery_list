@@ -295,6 +295,25 @@ void main() {
     expect(hasFocus(tester, itemField('item 79')), isTrue);
   });
 
+  testWidgets('the list stops above an opaque navigation bar backing', (
+    tester,
+  ) async {
+    // In physical pixels.
+    final inset = 48 * tester.view.devicePixelRatio;
+    tester.view.viewPadding = FakeViewPadding(bottom: inset);
+    tester.view.padding = FakeViewPadding(bottom: inset);
+    addTearDown(tester.view.reset);
+    await pump(tester, '# L\n- [ ] Milk\n');
+    final screen = tester.getSize(find.byType(Scaffold));
+    final backing = tester.getRect(find.byType(NavigationBarBacking));
+    expect(backing.top, screen.height - 48);
+    expect(backing.bottom, screen.height);
+    expect(
+      tester.getRect(find.byType(Scrollable).first).bottom,
+      lessThanOrEqualTo(backing.top),
+    );
+  });
+
   group('the + button', () {
     Finder plusOf(String text) => find.descendant(
       of: find.ancestor(of: itemField(text), matching: find.byType(Row)).first,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'display_options.dart';
+
 /// The total line after a list's last item (plan §4).
 ///
 /// Always one line high, with tabular figures, so a changing value never
@@ -16,8 +18,14 @@ class ListFooter extends StatelessWidget {
     final style = theme.textTheme.bodyLarge!.copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     );
+    final metrics = RowMetrics.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        metrics.headerPadding,
+        16,
+        metrics.textPadding,
+      ),
       child: Text(
         'Total: $total',
         style: style,

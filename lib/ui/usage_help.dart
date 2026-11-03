@@ -128,22 +128,32 @@ class _UsageHelpState extends State<UsageHelp> {
       ),
     );
 
+    // A grey band like the list names, set apart from the last list. A
+    // Material, so the button's ripple shows on it.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 32),
-      child: Column(
-        children: [
-          TextButton.icon(
-            onPressed: _toggle,
-            icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
-            label: const Text('How to use'),
+      padding: const EdgeInsets.only(top: 24),
+      child: Material(
+        color: ListColors.of(context).header,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          child: Column(
+            children: [
+              TextButton.icon(
+                onPressed: _toggle,
+                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                label: const Text('How to use'),
+              ),
+              AnimatedSize(
+                duration: _duration,
+                curve: Curves.easeOut,
+                alignment: Alignment.topCenter,
+                child: _expanded
+                    ? tips
+                    : const SizedBox(width: double.infinity),
+              ),
+            ],
           ),
-          AnimatedSize(
-            duration: _duration,
-            curve: Curves.easeOut,
-            alignment: Alignment.topCenter,
-            child: _expanded ? tips : const SizedBox(width: double.infinity),
-          ),
-        ],
+        ),
       ),
     );
   }

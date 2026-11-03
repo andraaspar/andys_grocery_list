@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import '../model/amounts.dart';
 import '../model/locale_names.dart';
 import '../state/settings_controller.dart';
+import 'display_options.dart';
 import 'file_switcher.dart';
+import 'theme.dart';
 
 export 'file_switcher.dart' show fileDisplayName;
 
-/// Settings (plan §7): change file, and the locale used for numbers.
+/// Settings (plan §7): change file, the locale used for numbers, and the
+/// row spacing and text size.
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
@@ -43,10 +46,40 @@ class SettingsPage extends StatelessWidget {
     if (picked != null) await settings.setLocaleOverride(picked.locale);
   }
 
+  Future<void> _pickSpacing(BuildContext context) async {
+    final picked = await _pickOption(
+      context,
+      title: 'Spacing',
+      options: Spacing.values,
+      current: settings.spacing,
+      label: (s) => Text(s.label),
+    );
+    if (picked != null) await settings.setSpacing(picked);
+  }
+
+  Future<void> _pickFontSize(BuildContext context) async {
+    final style = Theme.of(context).textTheme.bodyLarge!;
+    final picked = await _pickOption(
+      context,
+      title: 'Text size',
+      options: FontSize.values,
+      current: settings.fontSize,
+      // Each shown at its own size, relative to the current one.
+      label: (f) => Text(
+        f.label,
+        style: style.copyWith(
+          fontSize: style.fontSize! * f.factor / settings.fontSize.factor,
+        ),
+      ),
+    );
+    if (picked != null) await settings.setFontSize(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
+      bottomNavigationBar: const NavigationBarBacking(),
       body: ListenableBuilder(
         listenable: settings,
         builder: (context, _) {
@@ -74,6 +107,18 @@ class SettingsPage extends StatelessWidget {
                 ),
                 onTap: () => _pickLocale(context),
               ),
+              ListTile(
+                leading: const Icon(Icons.format_line_spacing),
+                title: const Text('Spacing'),
+                subtitle: Text(settings.spacing.label),
+                onTap: () => _pickSpacing(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.format_size),
+                title: const Text('Text size'),
+                subtitle: Text(settings.fontSize.label),
+                onTap: () => _pickFontSize(context),
+              ),
             ],
           );
         },
@@ -81,6 +126,30 @@ class SettingsPage extends StatelessWidget {
     );
   }
 }
+
+/// A dialog listing [options], with [current] checked. Null if dismissed.
+Future<T?> _pickOption<T>(
+  BuildContext context, {
+  required String title,
+  required List<T> options,
+  required T current,
+  required Widget Function(T) label,
+}) => showDialog<T>(
+  context: context,
+  builder: (context) => SimpleDialog(
+    title: Text(title),
+    children: [
+      for (final option in options)
+        ListTile(
+          title: label(option),
+          trailing: option == current ? const Icon(Icons.check) : null,
+          selected: option == current,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+          onTap: () => Navigator.pop(context, option),
+        ),
+    ],
+  ),
+);
 
 String systemDefaultLabel(String systemLocale) =>
     'Same as phone (${localeDisplayName(systemLocale)})';
@@ -136,6 +205,7 @@ class _LocalePickerPageState extends State<LocalePickerPage> {
         .toList();
     final showSystem = _matches(systemLabel);
     return Scaffold(
+      bottomNavigationBar: const NavigationBarBacking(),
       appBar: AppBar(
         title: TextField(
           controller: _search,

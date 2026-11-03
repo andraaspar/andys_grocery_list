@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'display_options.dart';
+
 /// The brand colours, taken from the launcher icon
 /// (`tool/generate_launcher_icon.py`): its sunflower-yellow background, and the tiles
 /// for the item states.
@@ -86,7 +88,7 @@ class ListColors extends ThemeExtension<ListColors> {
 /// No brown and no gray text: the seed's brownish tones are replaced with
 /// black (light) or neutral (dark) ones, and secondary text uses the same
 /// colour as the main text.
-ThemeData buildTheme(Brightness brightness) {
+ThemeData buildTheme(Brightness brightness, {Spacing spacing = Spacing.dense}) {
   final dark = brightness == Brightness.dark;
   final seeded = ColorScheme.fromSeed(
     seedColor: BrandColors.sunflower,
@@ -136,12 +138,14 @@ ThemeData buildTheme(Brightness brightness) {
       foregroundColor: dark ? null : Colors.black,
       // Action buttons are 12 px wider than their icons on each side; this
       // puts the last icon 16 px from the edge, like the rows' icons.
+      // [scaleAppBar] adjusts it to the text size.
       actionsPadding: const EdgeInsets.only(right: 4),
     ),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
     extensions: [
       dark ? StateColors.dark : StateColors.light,
       ListColors(header: neutral.surfaceContainerHigh),
+      SpacingTheme(spacing),
     ],
   );
 }
@@ -161,3 +165,23 @@ SystemUiOverlayStyle navigationBarStyle(Brightness brightness) =>
           : Brightness.dark,
       systemNavigationBarContrastEnforced: false,
     );
+
+/// An opaque backing for the system navigation bar, for a [Scaffold]'s
+/// `bottomNavigationBar`.
+///
+/// Since Android 15 the app is always drawn behind the navigation bar, and
+/// the bar's own colour can't be set, so with three-button navigation the
+/// content would scroll behind the buttons. With this, the [Scaffold] keeps
+/// its body above the bar.
+class NavigationBarBacking extends StatelessWidget {
+  const NavigationBarBacking({super.key});
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: Theme.of(context).scaffoldBackgroundColor,
+    child: SizedBox(
+      width: double.infinity,
+      height: MediaQuery.viewPaddingOf(context).bottom,
+    ),
+  );
+}

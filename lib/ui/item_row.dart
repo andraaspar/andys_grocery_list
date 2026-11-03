@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../model/todo_document.dart';
+import 'display_options.dart';
 import 'failed_box_icon.dart';
 import 'sentinel_controller.dart';
 import 'theme.dart';
@@ -45,11 +46,6 @@ class ItemRow extends StatelessWidget {
 
   bool get _locked => selectionMode || dragHandle != null;
 
-  /// The tightest vertical density makes the row 32 px high: one 24 px text
-  /// line with [textPadding] above and below.
-  static const rowDensity = VisualDensity(horizontal: -2, vertical: -4);
-  static const textPadding = 4.0;
-
   /// Space at both ends of a row. The icon buttons are 8 px wider than their
   /// icons on each side, so with this the icons are 16 px from the screen
   /// edges, in line with the list names and the app title.
@@ -68,6 +64,7 @@ class ItemRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final states = StateColors.of(context);
+    final metrics = RowMetrics.of(context);
     final base = theme.textTheme.bodyLarge!;
     // DONE is struck through; the text keeps its colour (no gray text).
     final style = item.state == ItemState.done
@@ -78,7 +75,7 @@ class ItemRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         IconButton(
-          visualDensity: rowDensity,
+          style: metrics.buttonStyle,
           icon: iconFor(item.state),
           // Coloured like the launcher icon's tiles; NEW stays neutral.
           color: switch (item.state) {
@@ -97,8 +94,8 @@ class ItemRow extends StatelessWidget {
         Expanded(
           child: Padding(
             padding: EdgeInsets.only(
-              top: textPadding,
-              bottom: textPadding,
+              top: metrics.textPadding,
+              bottom: metrics.textPadding,
               // Selection mode puts a check mark in the place of +, so the
               // text keeps its width and doesn't rewrap.
               right: onIncrement == null && dragHandle == null && !selectionMode
@@ -143,7 +140,7 @@ class ItemRow extends StatelessWidget {
           handle
         else if (selectionMode)
           IconButton(
-            visualDensity: rowDensity,
+            style: metrics.buttonStyle,
             icon: Icon(
               selected ? Icons.check_circle : Icons.radio_button_unchecked,
             ),
@@ -153,7 +150,7 @@ class ItemRow extends StatelessWidget {
           )
         else if (onIncrement != null)
           IconButton(
-            visualDensity: rowDensity,
+            style: metrics.buttonStyle,
             icon: const Icon(Icons.add),
             tooltip: 'Add one',
             onPressed: onIncrement,

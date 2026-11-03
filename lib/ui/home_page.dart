@@ -13,6 +13,7 @@ import '../model/todo_document.dart';
 import '../state/document_controller.dart';
 import '../state/selection_controller.dart';
 import 'dialogs.dart';
+import 'display_options.dart';
 import 'item_row.dart';
 import 'list_footer.dart';
 import 'list_header.dart';
@@ -900,11 +901,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       feedback: feedback,
       dragAnchorStrategy: anchor,
       onDragStarted: () => _startDrag(drag),
-      child: SizedBox(
-        // The size of the + button and the ⋯ menu.
-        width: 40,
-        height: 32,
-        child: Icon(
+      // The size of the + button and the ⋯ menu.
+      child: RowMetrics.of(context).iconBox(
+        Icon(
           Icons.drag_handle,
           semanticLabel: drag.isList ? 'Move list' : 'Move item',
         ),
@@ -923,15 +922,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _feedbackContent(_Row row) {
     final theme = Theme.of(context);
     final base = theme.textTheme.bodyLarge!;
+    final metrics = RowMetrics.of(context);
     switch (row) {
       case _ItemRow(:final item):
         final states = StateColors.of(context);
         return Row(
           children: [
-            SizedBox(
-              width: 40,
-              height: 32,
-              child: IconTheme.merge(
+            metrics.iconBox(
+              IconTheme.merge(
                 data: IconThemeData(
                   color: switch (item.state) {
                     ItemState.newItem => null,
@@ -952,11 +950,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     : base,
               ),
             ),
-            const SizedBox(
-              width: 40,
-              height: 32,
-              child: Icon(Icons.drag_handle),
-            ),
+            metrics.iconBox(const Icon(Icons.drag_handle)),
           ],
         );
       case _HeaderRow(:final list):
@@ -981,11 +975,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(
-                width: 40,
-                height: 32,
-                child: Icon(Icons.drag_handle),
-              ),
+              metrics.iconBox(const Icon(Icons.drag_handle)),
             ],
           ),
         );
@@ -1013,6 +1003,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       },
       child: Scaffold(
         appBar: _buildAppBar(),
+        bottomNavigationBar: const NavigationBarBacking(),
         body: NotificationListener<ScrollEndNotification>(
           onNotification: (_) {
             _scheduleAnchorSave();

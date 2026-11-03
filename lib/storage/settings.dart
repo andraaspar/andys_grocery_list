@@ -14,6 +14,9 @@ class Settings {
   static const _scrollKeyPrefix = 'scroll:';
   static const _recentFilesKey = 'recentFiles';
   static const _helpExpandedKey = 'helpExpanded';
+  static const _spacingKey = 'spacing';
+  // Not `fontSize`: that key held names of an older set of sizes.
+  static const _fontSizeKey = 'textSize';
 
   /// How many recent files are remembered.
   static const maxRecentFiles = 10;
@@ -45,6 +48,16 @@ class Settings {
 
   Future<void> setHelpExpanded(bool expanded) =>
       _prefs.setBool(_helpExpandedKey, expanded);
+
+  /// The name of the chosen row spacing. Null: the default.
+  String? get spacing => _prefs.getString(_spacingKey);
+
+  Future<void> setSpacing(String name) => _prefs.setString(_spacingKey, name);
+
+  /// The name of the chosen text size. Null: the default.
+  String? get fontSize => _prefs.getString(_fontSizeKey);
+
+  Future<void> setFontSize(String name) => _prefs.setString(_fontSizeKey, name);
 
   /// The locale chosen in Settings, such as `de_DE`. Null: follow the
   /// system (plan §7).

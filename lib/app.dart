@@ -6,6 +6,7 @@ import 'state/document_controller.dart';
 import 'state/settings_controller.dart';
 import 'storage/saf_storage.dart';
 import 'storage/settings.dart';
+import 'ui/display_options.dart';
 import 'ui/file_switcher.dart';
 import 'ui/home_page.dart';
 import 'ui/scroll_memory.dart';
@@ -58,7 +59,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     final settings = await Settings.load();
     _settings = settings;
     _settingsController = SettingsController(settings)
-      ..addListener(_onLocaleChanged);
+      ..addListener(_onSettingsChanged);
     final uri = settings.fileUri;
     if (uri != null) {
       final error = await _openUri(uri);
@@ -72,7 +73,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       _settingsController?.effectiveLocale ??
       WidgetsBinding.instance.platformDispatcher.locale.toString();
 
-  void _onLocaleChanged() => _document?.setLocale(_locale);
+  /// Locale, spacing or text size changed.
+  void _onSettingsChanged() {
+    _document?.setLocale(_locale);
+    setState(() {});
+  }
 
   /// Opens the file at [uri] and makes it the current one. Returns why it
   /// could not be opened, or null on success. On failure the current file
@@ -278,16 +283,29 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final spacing = _settingsController?.spacing ?? Spacing.dense;
+    final fontSize = _settingsController?.fontSize ?? FontSize.normal;
     return MaterialApp(
       scaffoldMessengerKey: _messenger,
       navigatorKey: _navigator,
       onGenerateTitle: (_) => appName(),
-      theme: buildTheme(Brightness.light),
-      darkTheme: buildTheme(Brightness.dark),
-      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-        value: navigationBarStyle(Theme.of(context).brightness),
-        child: child!,
-      ),
+      theme: buildTheme(Brightness.light, spacing: spacing),
+      darkTheme: buildTheme(Brightness.dark, spacing: spacing),
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        final textScaler = ScaledTextScaler(media.textScaler, fontSize.factor);
+        final theme = Theme.of(context);
+        return MediaQuery(
+          data: media.copyWith(textScaler: textScaler),
+          child: Theme(
+            data: scaleAppBar(theme, textScaler),
+            child: AnnotatedRegion<SystemUiOverlayStyle>(
+              value: navigationBarStyle(theme.brightness),
+              child: child!,
+            ),
+          ),
+        );
+      },
       home: _buildHome(),
     );
   }
