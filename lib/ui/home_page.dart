@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../app_name.dart';
+import '../model/amounts.dart';
+import '../model/clipboard_format.dart';
 import '../model/operations.dart' show CursorTarget;
 import '../model/todo_document.dart';
 import '../state/document_controller.dart';
+import 'dialogs.dart';
 import 'item_row.dart';
+import 'list_footer.dart';
 import 'list_header.dart';
 import 'sentinel_controller.dart';
 
@@ -13,8 +18,8 @@ import 'sentinel_controller.dart';
 /// item so it can be scrolled to the top of the viewport (plan §3, Scrolling).
 const itemRowHeight = 48.0;
 
-/// The main screen: one scrolling list of list headers and item rows,
-/// followed by blank space.
+/// The main screen: one scrolling list of list headers, item rows and total
+/// lines, followed by blank space.
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.document});
 
@@ -38,6 +43,12 @@ class _ItemRow extends _Row {
   _ItemRow(this.list, this.item) : super(item.id);
   final TodoList list;
   final TodoItem item;
+}
+
+class _FooterRow extends _Row {
+  _FooterRow(this.list, this.total) : super('total:${list.id}');
+  final TodoList list;
+  final String total;
 }
 
 class _SpaceRow extends _Row {
@@ -106,6 +117,11 @@ class _HomePageState extends State<HomePage> {
       rows.add(_HeaderRow(list));
       for (final item in list.items) {
         rows.add(_ItemRow(list, item));
+      }
+      // After the last item, so it never moves the items above (plan §4).
+      final total = listTotal(list, _document.numberContext);
+      if (total != null) {
+        rows.add(_FooterRow(list, formatTotal(total, _document.locale)));
       }
     }
     rows.add(const _SpaceRow());
@@ -245,6 +261,45 @@ class _HomePageState extends State<HomePage> {
   }
 
   // -------------------------------------------------------------------------
+  // The ⋯ menu (plan §4)
+
+  Future<void> _onListAction(TodoList list, ListAction action) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final current = _document.doc.lists.firstWhere(
+      (l) => l.id == list.id,
+      orElse: () => list,
+    );
+    switch (action) {
+      case ListAction.reset:
+        final previous = _document.resetList(list.id);
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: const Text('List reset'),
+              action: SnackBarAction(
+                label: 'Undo',
+                onPressed: () => _document.restoreStates(previous),
+              ),
+            ),
+          );
+      case ListAction.copy:
+        await Clipboard.setData(
+          ClipboardData(text: formatList(current, _document.numberContext)),
+        );
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('List copied')));
+      case ListAction.deleteDone:
+        _document.deleteDone(list.id);
+      case ListAction.delete:
+        if (await confirmDeleteList(context, current)) {
+          _document.deleteList(list.id);
+        }
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Build
 
   @override
@@ -277,6 +332,7 @@ class _HomePageState extends State<HomePage> {
           focusNode: f.focusNode,
           onChanged: (name) => _document.renameList(list.id, name),
           onSubmitted: () => _focusFirstItem(list),
+          onAction: (action) => _onListAction(list, action),
         );
       case _ItemRow(:final item):
         final f = _items[item.id]!;
@@ -288,6 +344,8 @@ class _HomePageState extends State<HomePage> {
           onCycleState: () => _document.cycleState(item.id),
           onIncrement: () => _document.incrementQuantity(item.id),
         );
+      case _FooterRow(:final total):
+        return ListFooter(key: key, total: total);
       case _SpaceRow():
         return GestureDetector(
           key: key,

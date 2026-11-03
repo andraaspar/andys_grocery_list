@@ -219,4 +219,16 @@ void main() {
     final d = doc('# A\n- [ ] a\n');
     expect(renameList(d, d.lists[0].id, 'x\ny').doc.lists[0].name, 'x y');
   });
+
+  test('restoreStates undoes a reset and keeps later edits', () {
+    final d = doc('# A\n- [x] a\n- [x] FAILED b\n- [ ] c\n');
+    final previous = {for (final it in d.lists[0].items) it.id: it.state};
+    final reset = resetList(d, d.lists[0].id).doc;
+    final edited = setItemText(reset, idAt(reset, 0, 2), 'c2').doc;
+    final gone = deleteItems(edited, {idAt(edited, 0, 0)}).doc;
+    expect(
+      md(restoreStates(gone, previous).doc),
+      '# A\n- [x] FAILED b\n- [ ] c2\n',
+    );
+  });
 }

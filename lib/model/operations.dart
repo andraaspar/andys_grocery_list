@@ -385,3 +385,20 @@ List<TodoItem> itemsInOrder(TodoDocument doc, Set<String> itemIds) => [
     for (final item in list.items)
       if (itemIds.contains(item.id)) item,
 ];
+
+/// Sets the state of each item in [states] that still exists. Used to undo
+/// a reset without discarding edits made since.
+OpResult restoreStates(TodoDocument doc, Map<String, ItemState> states) =>
+    OpResult(
+      TodoDocument([
+        for (final list in doc.lists)
+          list.copyWith(
+            items: [
+              for (final it in list.items)
+                states.containsKey(it.id)
+                    ? it.copyWith(state: states[it.id])
+                    : it,
+            ],
+          ),
+      ]),
+    );

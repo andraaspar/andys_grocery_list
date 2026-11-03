@@ -5,6 +5,7 @@ import 'package:andys_grocery_list/state/document_controller.dart';
 import 'package:andys_grocery_list/ui/home_page.dart';
 import 'package:andys_grocery_list/ui/sentinel_controller.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
@@ -321,6 +322,130 @@ void main() {
       expect(doc.doc.lists[0].items[1].text, '2x ');
       expect(hasFocus(tester, itemField('2x ')), isTrue);
       expect(hasFocus(tester, itemField('Milk')), isFalse);
+    });
+  });
+
+  group('the total line', () {
+    Finder total(String text) => find.text('Total: $text');
+
+    testWidgets('is hidden when no item has a price', (tester) async {
+      await pump(tester, '# L\n- [x] Milk\n');
+      expect(find.textContaining('Total:'), findsNothing);
+    });
+
+    testWidgets('sums DONE items and updates when one is checked off', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        '# L\n- [ ] 3x Milk 1.29\n- [x] 1.5x Cheese 8.00\n'
+        '- [x] FAILED Basil 0.99\n- [x] Coffee machine 1.299,00\n',
+      );
+      expect(total('1,311.00'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.check_box_outline_blank));
+      await tester.pump();
+      expect(total('1,314.87'), findsOneWidget);
+    });
+
+    testWidgets('is formatted with the document locale', (tester) async {
+      final doc = DocumentController(
+        parseDocument('# L\n- [x] Machine 1.299,5\n'),
+        locale: 'de_DE',
+      );
+      addTearDown(doc.dispose);
+      await tester.pumpWidget(MaterialApp(home: HomePage(document: doc)));
+      expect(total('1.299,5'), findsOneWidget);
+    });
+
+    testWidgets('appearing does not move the focused item', (tester) async {
+      await pump(tester, '# L\n- [x] Milk\n- [ ] Eggs\n');
+      await focusItem(tester, 'Milk', 4);
+      final before = tester.getTopLeft(itemField('Milk'));
+      await imeUpdate(tester, 'Milk 2|');
+      expect(total('2'), findsOneWidget);
+      expect(tester.getTopLeft(itemField('Milk 2')), before);
+      expect(
+        tester.getTopLeft(total('2')).dy,
+        greaterThan(tester.getTopLeft(itemField('Eggs')).dy),
+      );
+    });
+  });
+
+  group('the ⋯ menu', () {
+    Future<void> choose(
+      WidgetTester tester,
+      String entry, {
+      int list = 0,
+    }) async {
+      await tester.tap(find.byIcon(Icons.more_horiz).at(list));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(entry));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Reset sets every item to NEW and can be undone', (
+      tester,
+    ) async {
+      final doc = await pump(tester, '# L\n- [x] 3x a\n- [x] FAILED b\n');
+      await choose(tester, 'Reset');
+      expect(serialized(doc), '# L\n- [ ] 3x a\n- [ ] b\n');
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+      expect(serialized(doc), '# L\n- [x] 3x a\n- [x] FAILED b\n');
+    });
+
+    testWidgets('Copy list copies the list to the clipboard', (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await pump(tester, '# A\n- [ ] 2x a\n- [ ] \n\n# B\n- [x] b\n');
+      await choose(tester, 'Copy list');
+      expect(copied, '# A\n- 2x a\n');
+      expect(find.text('List copied'), findsOneWidget);
+    });
+
+    testWidgets('Delete done removes DONE items only', (tester) async {
+      final doc = await pump(tester, '# L\n- [x] a\n- [x] FAILED b\n- [ ] c\n');
+      await choose(tester, 'Delete done');
+      expect(serialized(doc), '# L\n- [x] FAILED b\n- [ ] c\n');
+    });
+
+    testWidgets('Delete list asks first', (tester) async {
+      final doc = await pump(tester, '# A\n- [ ] a\n\n# B\n- [ ] b\n- [ ] c\n');
+      await choose(tester, 'Delete list', list: 1);
+      expect(find.text('Delete list "B" and its 2 items?'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(serialized(doc), '# A\n- [ ] a\n\n# B\n- [ ] b\n- [ ] c\n');
+
+      await choose(tester, 'Delete list', list: 1);
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(serialized(doc), '# A\n- [ ] a\n');
+    });
+
+    testWidgets('deleting the only list leaves an empty TODO list', (
+      tester,
+    ) async {
+      final doc = await pump(tester, '# A\n- [ ] a\n');
+      await choose(tester, 'Delete list');
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(serialized(doc), '# TODO\n- [ ] \n');
     });
   });
 }

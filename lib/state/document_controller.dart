@@ -9,12 +9,22 @@ import '../model/todo_document.dart';
 /// Storage (autosave, reload) arrives in milestone 7; for now the document
 /// lives in memory only.
 class DocumentController extends ChangeNotifier {
-  DocumentController(TodoDocument doc, {NumberContext? numberContext})
-    : _doc = ops.normalize(doc),
-      numberContext = numberContext ?? NumberContext.en;
+  DocumentController(
+    TodoDocument doc, {
+    this.locale,
+    NumberContext? numberContext,
+  }) : _doc = ops.normalize(doc),
+       numberContext =
+           numberContext ??
+           (locale == null
+               ? NumberContext.en
+               : NumberContext.forLocale(locale));
 
   TodoDocument _doc;
   TodoDocument get doc => _doc;
+
+  /// The locale used to format totals (plan §4). Null means English.
+  String? locale;
 
   NumberContext numberContext;
 
@@ -81,5 +91,28 @@ class DocumentController extends ChangeNotifier {
   void itemBlurred(String itemId) {
     final r = ops.normalizeQuantityOnBlur(_doc, itemId, numberContext);
     if (!identical(r.doc, _doc)) _apply(r);
+  }
+
+  /// Sets every item in the list to NEW. Returns the previous states, for
+  /// [restoreStates] (Undo).
+  Map<String, ItemState> resetList(String listId) {
+    final i = _doc.listIndexOf(listId);
+    if (i < 0) return const {};
+    final previous = {for (final it in _doc.lists[i].items) it.id: it.state};
+    _apply(ops.resetList(_doc, listId));
+    return previous;
+  }
+
+  void restoreStates(Map<String, ItemState> states) =>
+      _apply(ops.restoreStates(_doc, states));
+
+  void deleteDone(String listId) {
+    if (_doc.listIndexOf(listId) < 0) return;
+    _apply(ops.deleteDone(_doc, listId));
+  }
+
+  void deleteList(String listId) {
+    if (_doc.listIndexOf(listId) < 0) return;
+    _apply(ops.deleteList(_doc, listId));
   }
 }

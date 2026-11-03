@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'app_name.dart';
 import 'model/markdown_codec.dart';
-import 'model/number_parser.dart';
 import 'state/document_controller.dart';
 import 'ui/home_page.dart';
 
@@ -34,9 +33,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _document = DocumentController(
       parseDocument(_sampleDocument),
-      numberContext: NumberContext.forLocale(
-        WidgetsBinding.instance.platformDispatcher.locale.toString(),
-      ),
+      locale: WidgetsBinding.instance.platformDispatcher.locale.toString(),
     );
   }
 
