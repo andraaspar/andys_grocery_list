@@ -19,24 +19,27 @@ import 'list_header.dart';
 import 'scroll_memory.dart';
 import 'sentinel_controller.dart';
 import 'snackbars.dart';
-
-/// Approximate height of one item row, used to size the space below the last
-/// item so it can be scrolled to the top of the viewport (plan §3, Scrolling).
-const itemRowHeight = 48.0;
+import 'usage_help.dart';
 
 /// How much room is kept between the focused row and the edges of the
 /// viewport when it is scrolled into view.
 const revealMargin = 16.0;
 
 /// The main screen: one scrolling list of list headers, item rows and total
-/// lines, followed by blank space.
+/// lines, followed by short usage instructions.
 class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
     required this.document,
     this.scrollMemory,
     this.onOpenSettings,
+    this.helpExpanded = true,
+    this.onHelpExpandedChanged,
   });
+
+  /// Whether the usage help starts expanded, and where its changes go.
+  final bool helpExpanded;
+  final ValueChanged<bool>? onHelpExpandedChanged;
 
   final DocumentController document;
 
@@ -75,8 +78,8 @@ class _FooterRow extends _Row {
   final String total;
 }
 
-class _SpaceRow extends _Row {
-  const _SpaceRow(int lists) : super('space', (list: lists, item: -1));
+class _HelpRow extends _Row {
+  const _HelpRow(int lists) : super('help', (list: lists, item: -1));
 }
 
 String _listKey(String listId) => 'list:$listId';
@@ -113,6 +116,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   UndoToken? _pendingUndo;
 
   DocumentController get _document => widget.document;
+
+  /// Kept here as well, as the help row is rebuilt when it scrolls back in.
+  late bool _helpExpanded = widget.helpExpanded;
 
   @override
   void initState() {
@@ -228,7 +234,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         rows.add(_FooterRow(list, formatTotal(total, _document.locale), l));
       }
     }
-    rows.add(_SpaceRow(lists.length));
+    rows.add(_HelpRow(lists.length));
     _rows = rows;
     _rowIndex = {for (var i = 0; i < rows.length; i++) rows[i].key: i};
   }
@@ -475,11 +481,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _document.focus(CursorTarget.item(current.items.first.id, 0));
   }
 
-  void _focusLastItem() {
-    final last = _document.doc.lists.last.items.last;
-    _document.focus(CursorTarget.item(last.id, last.text.length));
-  }
-
   // -------------------------------------------------------------------------
   // The ⋯ menu (plan §4)
 
@@ -559,14 +560,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         title: Text(appName()),
         actions: [
           if (openSettings != null)
-            PopupMenuButton<void>(
-              tooltip: 'More',
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  onTap: openSettings,
-                  child: const Text('Settings'),
-                ),
-              ],
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Settings',
+              onPressed: openSettings,
             ),
         ],
       );
@@ -615,31 +612,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _scheduleAnchorSave();
             return false;
           },
-          child: LayoutBuilder(
-            builder: (context, constraints) => SuperListView.builder(
-              listController: _listController,
-              controller: _scrollController,
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-              itemCount: _rows.length,
-              findChildIndexCallback: (key) =>
-                  key is ValueKey<String> ? _rowIndex[key.value] : null,
-              itemBuilder: (context, index) {
-                final row = _rows[index];
-                return _TrackedRow(
-                  key: ValueKey(row.key),
-                  rowKey: row.key,
-                  contexts: _rowContexts,
-                  child: _buildRow(row, constraints.maxHeight),
-                );
-              },
-            ),
+          child: SuperListView.builder(
+            listController: _listController,
+            controller: _scrollController,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+            itemCount: _rows.length,
+            findChildIndexCallback: (key) =>
+                key is ValueKey<String> ? _rowIndex[key.value] : null,
+            itemBuilder: (context, index) {
+              final row = _rows[index];
+              return _TrackedRow(
+                key: ValueKey(row.key),
+                rowKey: row.key,
+                contexts: _rowContexts,
+                child: _buildRow(row),
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _buildRow(_Row row, double viewportHeight) {
+  Widget _buildRow(_Row row) {
     switch (row) {
       case _HeaderRow(:final list):
         final f = _names[list.id]!;
@@ -668,16 +663,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       case _FooterRow(:final total):
         return ListFooter(total: total);
-      case _SpaceRow():
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _focusLastItem,
-          child: SizedBox(
-            height: (viewportHeight - itemRowHeight).clamp(
-              0.0,
-              double.infinity,
-            ),
-          ),
+      case _HelpRow():
+        return UsageHelp(
+          initiallyExpanded: _helpExpanded,
+          onExpandedChanged: (expanded) {
+            _helpExpanded = expanded;
+            widget.onHelpExpandedChanged?.call(expanded);
+          },
         );
     }
   }

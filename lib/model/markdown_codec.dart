@@ -93,7 +93,7 @@ Fragment parseFragment(String content) {
 }
 
 /// Parses a whole file. Items before the first header go into a list with an
-/// empty name. An empty file gives one `TODO` list with one empty item.
+/// empty name. An empty file gives one unnamed list with one empty item.
 TodoDocument parseDocument(String content) {
   final fragment = parseFragment(content);
   final lists = [
@@ -101,7 +101,7 @@ TodoDocument parseDocument(String content) {
       TodoList(name: '', items: fragment.looseItems),
     ...fragment.lists,
   ];
-  if (lists.isEmpty) lists.add(TodoList(name: 'TODO'));
+  if (lists.isEmpty) lists.add(TodoList(name: ''));
   return normalize(TodoDocument(lists));
 }
 

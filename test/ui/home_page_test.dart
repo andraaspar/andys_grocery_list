@@ -3,11 +3,18 @@ import 'package:andys_grocery_list/model/number_parser.dart';
 import 'package:andys_grocery_list/model/operations.dart' show CursorTarget;
 import 'package:andys_grocery_list/state/document_controller.dart';
 import 'package:andys_grocery_list/ui/home_page.dart';
+import 'package:andys_grocery_list/ui/item_row.dart';
+import 'package:andys_grocery_list/ui/list_header.dart';
 import 'package:andys_grocery_list/ui/sentinel_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:super_sliver_list/super_sliver_list.dart';
+
+/// An icon in the list rows, not in the usage help below them.
+Finder rowIcon(IconData icon) => find.descendant(
+  of: find.byWidgetPredicate((w) => w is ItemRow || w is ListHeader),
+  matching: find.byIcon(icon),
+);
 
 Future<DocumentController> pump(WidgetTester tester, String md) async {
   final doc = DocumentController(parseDocument(md));
@@ -152,13 +159,40 @@ void main() {
     await focusItem(tester, '', 0);
     await imeUpdate(tester, '\n|');
 
-    expect(serialized(doc), '# L\n- [ ] a\n\n# New list\n- [ ] b\n');
-    final name = nameField('New list');
+    expect(serialized(doc), '# L\n- [ ] a\n\n# \n- [ ] b\n');
+    final name = nameField('');
     expect(hasFocus(tester, name), isTrue);
     expect(
       fieldOf(tester, name).controller!.selection,
-      const TextSelection(baseOffset: 0, extentOffset: 8),
+      const TextSelection.collapsed(offset: 0),
     );
+  });
+
+  testWidgets('empty names and items show placeholders, and help is shown', (
+    tester,
+  ) async {
+    await pump(tester, '# \n- [ ] \n- [ ] Milk\n');
+    expect(find.text('Your brand new list'), findsOneWidget);
+    expect(find.text(ItemRow.placeholder), findsOneWidget);
+    expect(find.text('How to use'), findsOneWidget);
+
+    await focusItem(tester, '', 0);
+    await imeUpdate(tester, 'E|');
+    await tester.pump();
+    expect(find.text(ItemRow.placeholder), findsNothing);
+  });
+
+  testWidgets('the help collapses and expands', (tester) async {
+    await pump(tester, '# L\n- [ ] Milk\n');
+    expect(find.textContaining('Paste several lines'), findsOneWidget);
+
+    await tester.tap(find.text('How to use'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Paste several lines'), findsNothing);
+
+    await tester.tap(find.text('How to use'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Paste several lines'), findsOneWidget);
   });
 
   testWidgets('Enter in a list name focuses the first item', (tester) async {
@@ -201,10 +235,10 @@ void main() {
 
   testWidgets('tapping the state icon cycles the state', (tester) async {
     final doc = await pump(tester, '# L\n- [ ] Milk\n');
-    await tester.tap(find.byIcon(Icons.check_box_outline_blank));
+    await tester.tap(rowIcon(Icons.check_box_outline_blank));
     await tester.pump();
     expect(serialized(doc), '# L\n- [x] Milk\n');
-    await tester.tap(find.byIcon(Icons.check_box));
+    await tester.tap(rowIcon(Icons.check_box));
     await tester.pump();
     expect(serialized(doc), '# L\n- [x] FAILED Milk\n');
   });
@@ -219,37 +253,6 @@ void main() {
     await tester.showKeyboard(itemField('Eggs'));
     await tester.pumpAndSettle();
     expect(doc.doc.lists[0].items[0].text, 'Milk');
-  });
-
-  testWidgets('the last item can be scrolled to the top of the viewport', (
-    tester,
-  ) async {
-    final lines = [for (var i = 0; i < 30; i++) '- [ ] item $i'].join('\n');
-    await pump(tester, '# L\n$lines\n');
-    final scrollable = find.byType(SuperListView);
-    await tester.drag(scrollable, const Offset(0, -100000));
-    await tester.pumpAndSettle();
-
-    final listTop = tester.getTopLeft(scrollable).dy;
-    final lastTop = tester.getTopLeft(itemField('item 29')).dy;
-    expect(lastTop - listTop, lessThan(itemRowHeight));
-  });
-
-  testWidgets('tapping the blank space focuses the last item at its end', (
-    tester,
-  ) async {
-    await pump(tester, '# A\n- [ ] a\n\n# B\n- [ ] b\n- [ ] last\n');
-    await tester.tapAt(
-      tester.getBottomLeft(find.byType(SuperListView)) + const Offset(20, -20),
-    );
-    await tester.pumpAndSettle();
-
-    final last = itemField('last');
-    expect(hasFocus(tester, last), isTrue);
-    expect(
-      controllerOf(tester, last).modelSelection,
-      const TextSelection.collapsed(offset: 4),
-    );
   });
 
   testWidgets('focusing an item that is scrolled far away brings it in view', (
@@ -289,7 +292,7 @@ void main() {
     testWidgets('repeated presses keep the number selected', (tester) async {
       final doc = await pump(tester, '# L\n- [ ] 8x Milk\n');
       for (var i = 0; i < 3; i++) {
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(rowIcon(Icons.add));
         await tester.pumpAndSettle();
       }
       expect(doc.doc.lists[0].items[0].text, '11x Milk');
@@ -303,7 +306,7 @@ void main() {
 
     testWidgets('typing replaces the selected number', (tester) async {
       final doc = await pump(tester, '# L\n- [ ] 1,5x Cheese\n');
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(rowIcon(Icons.add));
       await tester.pumpAndSettle();
       expect(doc.doc.lists[0].items[0].text, '2,5x Cheese');
       expect(
@@ -342,7 +345,7 @@ void main() {
         '- [x] FAILED Basil 0.99\n- [x] Coffee machine 1.299,00\n',
       );
       expect(total('1,311.00'), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.check_box_outline_blank));
+      await tester.tap(rowIcon(Icons.check_box_outline_blank));
       await tester.pump();
       expect(total('1,314.87'), findsOneWidget);
     });
@@ -377,7 +380,7 @@ void main() {
       String entry, {
       int list = 0,
     }) async {
-      await tester.tap(find.byIcon(Icons.more_horiz).at(list));
+      await tester.tap(rowIcon(Icons.more_horiz).at(list));
       await tester.pumpAndSettle();
       await tester.tap(find.text(entry));
       await tester.pumpAndSettle();
@@ -438,14 +441,14 @@ void main() {
       expect(serialized(doc), '# A\n- [ ] a\n');
     });
 
-    testWidgets('deleting the only list leaves an empty TODO list', (
+    testWidgets('deleting the only list leaves an empty unnamed list', (
       tester,
     ) async {
       final doc = await pump(tester, '# A\n- [ ] a\n');
       await choose(tester, 'Delete list');
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      expect(serialized(doc), '# TODO\n- [ ] \n');
+      expect(serialized(doc), '# \n- [ ] \n');
     });
 
     testWidgets('Delete done can be undone', (tester) async {
@@ -605,11 +608,11 @@ void selectionTests() {
   ) async {
     final doc = await pump(tester, '# L\n- [ ] a\n- [ ] b\n');
     await focusItem(tester, 'b', 0);
-    expect(find.byIcon(Icons.add), findsNWidgets(2));
+    expect(rowIcon(Icons.add), findsNWidgets(2));
 
     await longPressIcon(tester, 'a');
     expect(find.text('1 selected'), findsOneWidget);
-    expect(find.byIcon(Icons.add), findsNothing);
+    expect(rowIcon(Icons.add), findsNothing);
     expect(hasFocus(tester, itemField('b')), isFalse);
     expect(serialized(doc), '# L\n- [ ] a\n- [ ] b\n');
   });
@@ -639,7 +642,7 @@ void selectionTests() {
     await longPressIcon(tester, 'a');
     await tapRow(tester, 'a');
     expect(find.text('1 selected'), findsNothing);
-    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(rowIcon(Icons.add), findsOneWidget);
   });
 
   testWidgets('Close and the back button leave selection mode', (tester) async {

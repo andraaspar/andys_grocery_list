@@ -53,12 +53,16 @@ class StateColors extends ThemeExtension<StateColors> {
 /// The light and dark themes. The app follows the system setting.
 ///
 /// Yellow can't be used for text on a light background, so in light mode
-/// the scheme's primary is a dark gold and the sunflower shows as the app
-/// bar. In dark mode the primary itself is sunflower, and the bar stays dark
-/// so it doesn't glare.
+/// the sunflower shows as the app bar, and text and accents are black. In
+/// dark mode the primary itself is sunflower, and the bar stays dark so it
+/// doesn't glare.
+///
+/// No brown and no gray text: the seed's brownish tones are replaced with
+/// black (light) or neutral (dark) ones, and secondary text uses the same
+/// colour as the main text.
 ThemeData buildTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
-  final scheme = ColorScheme.fromSeed(
+  final seeded = ColorScheme.fromSeed(
     seedColor: BrandColors.sunflower,
     brightness: brightness,
     // Light: primaryContainer is exactly the sunflower. Dark: primary is a
@@ -67,13 +71,45 @@ ThemeData buildTheme(Brightness brightness) {
         ? DynamicSchemeVariant.vibrant
         : DynamicSchemeVariant.fidelity,
   );
+  // Untinted greys, for the surfaces and outlines.
+  final neutral = ColorScheme.fromSeed(
+    seedColor: BrandColors.sunflower,
+    brightness: brightness,
+    dynamicSchemeVariant: DynamicSchemeVariant.monochrome,
+  );
+  final text = dark ? Colors.white : Colors.black;
+  final scheme = seeded.copyWith(
+    onSurface: text,
+    onSurfaceVariant: text,
+    outline: neutral.outline,
+    outlineVariant: neutral.outlineVariant,
+    onPrimaryContainer: dark ? null : Colors.black,
+    onSecondaryContainer: dark ? null : Colors.black,
+    // Light: the gold-brown accents become black.
+    primary: dark ? null : Colors.black,
+    onPrimary: dark ? null : Colors.white,
+    secondary: dark ? null : Colors.black,
+    onSecondary: dark ? null : Colors.white,
+    tertiary: dark ? null : Colors.black,
+    onTertiary: dark ? null : Colors.white,
+    // Dark: the brownish surfaces become black and neutral greys.
+    surface: dark ? Colors.black : null,
+    surfaceDim: dark ? Colors.black : null,
+    surfaceBright: dark ? neutral.surfaceBright : null,
+    surfaceContainerLowest: dark ? Colors.black : null,
+    surfaceContainerLow: dark ? neutral.surfaceContainerLow : null,
+    surfaceContainer: dark ? neutral.surfaceContainer : null,
+    surfaceContainerHigh: dark ? neutral.surfaceContainerHigh : null,
+    surfaceContainerHighest: dark ? neutral.surfaceContainerHighest : null,
+    surfaceTint: dark ? Colors.transparent : null,
+  );
   return ThemeData(
     colorScheme: scheme,
     appBarTheme: dark
         ? null
         : AppBarTheme(
             backgroundColor: scheme.primaryContainer,
-            foregroundColor: scheme.onPrimaryContainer,
+            foregroundColor: Colors.black,
           ),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
     extensions: [dark ? StateColors.dark : StateColors.light],

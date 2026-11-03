@@ -24,7 +24,7 @@ class ListHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 0, 0),
+      padding: const EdgeInsets.fromLTRB(16, 4, 0, 0),
       child: Row(
         children: [
           Expanded(
@@ -33,11 +33,12 @@ class ListHeader extends StatelessWidget {
               focusNode: focusNode,
               maxLines: 1,
               textInputAction: TextInputAction.next,
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: theme.colorScheme.primary,
+              // Same size as the items, bold.
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.bold,
               ),
               decoration: const InputDecoration.collapsed(
-                hintText: 'List name',
+                hintText: 'Your brand new list',
               ),
               onChanged: onChanged,
               // Overrides the default "next" behaviour: focus goes to the
@@ -47,6 +48,10 @@ class ListHeader extends StatelessWidget {
           ),
           PopupMenuButton<ListAction>(
             icon: const Icon(Icons.more_horiz),
+            // Same height as an item row.
+            style: IconButton.styleFrom(
+              visualDensity: const VisualDensity(horizontal: -2, vertical: -4),
+            ),
             tooltip: 'List actions',
             onSelected: onAction,
             itemBuilder: (context) => const [

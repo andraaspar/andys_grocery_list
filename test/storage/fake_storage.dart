@@ -53,4 +53,18 @@ class FakeStorage implements DocumentStorage {
   @override
   Future<int?> lastModified(String uri) async =>
       reportsModified ? modified[uri] : null;
+
+  @override
+  Future<String?> displayName(String uri) async =>
+      files.containsKey(uri) && permitted.contains(uri)
+      ? uri.substring(uri.lastIndexOf('/') + 1)
+      : null;
+
+  final released = <String>[];
+
+  @override
+  Future<void> releasePermission(String uri) async {
+    released.add(uri);
+    permitted.remove(uri);
+  }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../model/todo_document.dart';
+import 'failed_box_icon.dart';
 import 'sentinel_controller.dart';
 import 'theme.dart';
 
@@ -36,10 +37,18 @@ class ItemRow extends StatelessWidget {
   final bool selected;
   final VoidCallback? onToggleSelection;
 
-  static IconData iconFor(ItemState state) => switch (state) {
-    ItemState.newItem => Icons.check_box_outline_blank,
-    ItemState.done => Icons.check_box,
-    ItemState.failed => Icons.disabled_by_default_outlined,
+  /// The tightest vertical density makes the row 32 px high: one 24 px text
+  /// line with [textPadding] above and below.
+  static const rowDensity = VisualDensity(horizontal: -2, vertical: -4);
+  static const textPadding = 4.0;
+
+  /// Shown in an empty item.
+  static const placeholder = 'Something';
+
+  static Widget iconFor(ItemState state) => switch (state) {
+    ItemState.newItem => const Icon(Icons.check_box_outline_blank),
+    ItemState.done => const Icon(Icons.check_box),
+    ItemState.failed => const FailedBoxIcon(),
   };
 
   @override
@@ -47,22 +56,17 @@ class ItemRow extends StatelessWidget {
     final theme = Theme.of(context);
     final states = StateColors.of(context);
     final base = theme.textTheme.bodyLarge!;
-    final muted = item.state != ItemState.newItem;
-    final style = muted
-        ? base.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-            decoration: item.state == ItemState.done
-                ? TextDecoration.lineThrough
-                : null,
-            decorationColor: theme.colorScheme.onSurfaceVariant,
-          )
+    // DONE is struck through; the text keeps its colour (no gray text).
+    final style = item.state == ItemState.done
+        ? base.copyWith(decoration: TextDecoration.lineThrough)
         : base;
 
     final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         IconButton(
-          icon: Icon(iconFor(item.state)),
+          visualDensity: rowDensity,
+          icon: iconFor(item.state),
           // Coloured like the launcher icon's tiles; NEW stays neutral.
           color: switch (item.state) {
             ItemState.newItem => null,
@@ -80,29 +84,47 @@ class ItemRow extends StatelessWidget {
         Expanded(
           child: Padding(
             padding: EdgeInsets.only(
-              top: 12,
-              bottom: 12,
+              top: textPadding,
+              bottom: textPadding,
               right: onIncrement == null ? 16 : 0,
             ),
             // Always wrapped, so toggling selection mode keeps the field's
             // state.
             child: IgnorePointer(
               ignoring: selectionMode,
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                readOnly: selectionMode,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                maxLines: null,
-                style: style,
-                decoration: const InputDecoration.collapsed(hintText: ''),
+              child: Stack(
+                children: [
+                  TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    readOnly: selectionMode,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    maxLines: null,
+                    style: style,
+                    decoration: const InputDecoration.collapsed(hintText: ''),
+                  ),
+                  // The field's own hint never shows: its text always holds
+                  // the invisible sentinel.
+                  ListenableBuilder(
+                    listenable: controller,
+                    builder: (context, _) => controller.modelText.isEmpty
+                        ? IgnorePointer(
+                            child: Text(
+                              placeholder,
+                              style: base.copyWith(color: theme.hintColor),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
               ),
             ),
           ),
         ),
         if (onIncrement != null)
           IconButton(
+            visualDensity: rowDensity,
             icon: const Icon(Icons.add),
             tooltip: 'Add one',
             onPressed: onIncrement,

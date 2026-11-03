@@ -1,5 +1,7 @@
 import 'package:andys_grocery_list/app.dart';
 import 'package:andys_grocery_list/ui/home_page.dart';
+import 'package:andys_grocery_list/ui/item_row.dart';
+import 'package:andys_grocery_list/ui/list_header.dart';
 import 'package:andys_grocery_list/ui/sentinel_controller.dart';
 import 'package:andys_grocery_list/ui/settings_page.dart';
 import 'package:andys_grocery_list/ui/welcome_page.dart';
@@ -9,6 +11,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import 'storage/fake_storage.dart';
+
+/// An icon in the list rows, not in the usage help below them.
+Finder rowIcon(IconData icon) => find.descendant(
+  of: find.byWidgetPredicate((w) => w is ItemRow || w is ListHeader),
+  matching: find.byIcon(icon),
+);
 
 const uri = 'content://todo.md';
 
@@ -69,7 +77,7 @@ void main() {
     await tester.tap(find.text('Create new file'));
     await tester.pumpAndSettle();
     expect(find.byType(HomePage), findsOneWidget);
-    expect(find.text('TODO'), findsOneWidget);
+    expect(find.text('Your brand new list'), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('fileUri'), uri);
   });
@@ -110,7 +118,7 @@ void main() {
     SharedPreferences.setMockInitialValues({'fileUri': uri});
     final storage = FakeStorage({uri: '# L\n- [ ] Milk\n'});
     await pumpApp(tester, storage);
-    await tester.tap(find.byIcon(Icons.check_box_outline_blank));
+    await tester.tap(rowIcon(Icons.check_box_outline_blank));
     await tester.pump();
     pause(tester);
     await tester.pump();
@@ -172,11 +180,18 @@ void main() {
     expect(tester.getTopLeft(itemField(anchored)).dy, closeTo(before, 1));
   });
 
+  testWidgets('the help remembers being collapsed', (tester) async {
+    SharedPreferences.setMockInitialValues({'fileUri': uri});
+    await pumpApp(tester, FakeStorage({uri: '# L\n- [ ] Milk\n'}));
+    await tester.tap(find.text('How to use'));
+    await tester.pumpAndSettle();
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('helpExpanded'), isFalse);
+  });
+
   group('settings', () {
     Future<void> openSettings(WidgetTester tester) async {
-      await tester.tap(find.byTooltip('More'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Settings'));
+      await tester.tap(find.byTooltip('Settings'));
       await tester.pumpAndSettle();
     }
 
@@ -185,7 +200,7 @@ void main() {
       String search,
       String tap,
     ) async {
-      await tester.tap(find.text('Locale'));
+      await tester.tap(find.text('Number format'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), search);
       await tester.pumpAndSettle();
@@ -210,7 +225,10 @@ void main() {
       await openSettings(tester);
       expect(find.byType(SettingsPage), findsOneWidget);
       expect(find.text('groceries.md'), findsOneWidget);
-      expect(find.textContaining('System default (en_US)'), findsOneWidget);
+      expect(
+        find.textContaining('Same as phone (English (United States))'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('changing the locale re-formats totals, not the file', (
@@ -223,8 +241,8 @@ void main() {
       expect(find.text('Total: 1,234.50'), findsOneWidget);
 
       await openSettings(tester);
-      await pickLocale(tester, 'de', 'de');
-      expect(find.textContaining('de · '), findsOneWidget);
+      await pickLocale(tester, 'german', 'German');
+      expect(find.textContaining('German · '), findsOneWidget);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('locale'), 'de');
 
@@ -240,7 +258,11 @@ void main() {
       resume(tester);
       await tester.pumpAndSettle();
       await openSettings(tester);
-      await pickLocale(tester, 'system', 'System default (en_US)');
+      await pickLocale(
+        tester,
+        'phone',
+        'Same as phone (English (United States))',
+      );
       expect(prefs.getString('locale'), isNull);
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -265,7 +287,7 @@ void main() {
       await pumpApp(tester, storage);
 
       // An unsaved edit to the old file is written before switching.
-      await tester.tap(find.byIcon(Icons.check_box_outline_blank));
+      await tester.tap(rowIcon(Icons.check_box_outline_blank));
       await tester.pump();
       await openSettings(tester);
       await tester.tap(find.text('Change file'));
@@ -278,6 +300,74 @@ void main() {
       expect(storage.files[uri], '# L\n- [x] Milk\n');
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('fileUri'), other);
+    });
+
+    group('recent files', () {
+      const other = 'content://other.md';
+
+      Future<void> openChangeFile(WidgetTester tester) async {
+        await openSettings(tester);
+        await tester.tap(find.text('Change file'));
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('lists the previous file and reopens it', (tester) async {
+        SharedPreferences.setMockInitialValues({'fileUri': uri});
+        final storage = FakeStorage({
+          uri: '# L\n- [ ] Milk\n',
+          other: '# Work\n- [ ] Report\n',
+        })..nextOpen = other;
+        await pumpApp(tester, storage);
+        await openChangeFile(tester);
+        // Only the current file so far, which isn't listed.
+        expect(find.text('Recent files'), findsNothing);
+        await tester.tap(find.text('Open existing file'));
+        await tester.pumpAndSettle();
+
+        await openChangeFile(tester);
+        expect(find.text('Recent files'), findsOneWidget);
+        expect(find.text(uri.substring(uri.lastIndexOf('/') + 1)), findsOne);
+        await tester.tap(find.text(uri.substring(uri.lastIndexOf('/') + 1)));
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsPage), findsNothing);
+        expect(itemField('Milk'), findsOneWidget);
+      });
+
+      testWidgets('can be removed, which releases the file', (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'fileUri': uri,
+          'recentFiles': [uri, other],
+        });
+        final storage = FakeStorage({
+          uri: '# L\n- [ ] Milk\n',
+          other: '# Work\n- [ ] Report\n',
+        });
+        await pumpApp(tester, storage);
+        await openChangeFile(tester);
+        await tester.tap(find.byTooltip('Remove from recent files'));
+        await tester.pumpAndSettle();
+        expect(find.text('other.md'), findsNothing);
+        expect(storage.released, [other]);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getStringList('recentFiles'), [uri]);
+      });
+
+      testWidgets('files that no longer exist are forgotten', (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'fileUri': uri,
+          'recentFiles': [uri, 'content://gone.md', other],
+        });
+        final storage = FakeStorage({
+          uri: '# L\n- [ ] Milk\n',
+          other: '# Work\n- [ ] Report\n',
+        });
+        await pumpApp(tester, storage);
+        await openChangeFile(tester);
+        expect(find.text('gone.md'), findsNothing);
+        expect(find.text('other.md'), findsOneWidget);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getStringList('recentFiles'), [uri, other]);
+      });
     });
 
     testWidgets('a cancelled Change file stays in Settings', (tester) async {

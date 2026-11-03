@@ -2,11 +2,33 @@ import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 
 import '../model/amounts.dart';
+import '../model/locale_names.dart';
 import '../state/settings_controller.dart';
 import 'snackbars.dart';
 
 /// What happened when the user tried to change the file.
 typedef FileChange = ({bool changed, String? error});
+
+/// A file opened before, and its name.
+typedef RecentFile = ({String uri, String name});
+
+/// What was picked in the Change file sheet.
+sealed class _FileChoice {
+  const _FileChoice();
+}
+
+class _OpenFile extends _FileChoice {
+  const _OpenFile();
+}
+
+class _CreateFile extends _FileChoice {
+  const _CreateFile();
+}
+
+class _RecentChoice extends _FileChoice {
+  const _RecentChoice(this.uri);
+  final String uri;
+}
 
 /// Settings (plan §7): change file, and the locale used for numbers.
 class SettingsPage extends StatelessWidget {
@@ -16,6 +38,9 @@ class SettingsPage extends StatelessWidget {
     required this.fileUri,
     required this.onOpenFile,
     required this.onCreateFile,
+    this.recentFiles,
+    this.onOpenRecentFile,
+    this.onRemoveRecentFile,
   });
 
   final SettingsController settings;
@@ -27,30 +52,29 @@ class SettingsPage extends StatelessWidget {
   final Future<FileChange> Function() onOpenFile;
   final Future<FileChange> Function() onCreateFile;
 
+  /// The files opened before, other than the current one, that still exist.
+  final Future<List<RecentFile>> Function()? recentFiles;
+  final Future<FileChange> Function(String uri)? onOpenRecentFile;
+  final Future<void> Function(String uri)? onRemoveRecentFile;
+
   Future<void> _changeFile(BuildContext context) async {
-    final create = await showModalBottomSheet<bool>(
+    final recent = await recentFiles?.call() ?? const <RecentFile>[];
+    if (!context.mounted) return;
+    final choice = await showModalBottomSheet<_FileChoice>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.file_open_outlined),
-              title: const Text('Open existing file'),
-              onTap: () => Navigator.pop(context, false),
-            ),
-            ListTile(
-              leading: const Icon(Icons.note_add_outlined),
-              title: const Text('Create new file'),
-              onTap: () => Navigator.pop(context, true),
-            ),
-          ],
-        ),
+      isScrollControlled: true,
+      builder: (context) => _ChangeFileSheet(
+        recent: recent,
+        onRemove: (uri) => onRemoveRecentFile?.call(uri),
       ),
     );
-    if (create == null || !context.mounted) return;
-    final result = await (create ? onCreateFile() : onOpenFile());
+    if (choice == null || !context.mounted) return;
+    final result = await switch (choice) {
+      _OpenFile() => onOpenFile(),
+      _CreateFile() => onCreateFile(),
+      _RecentChoice(:final uri) => onOpenRecentFile!(uri),
+    };
     if (!context.mounted) return;
     if (result.error != null) {
       showMessage(ScaffoldMessenger.maybeOf(context), result.error!);
@@ -96,9 +120,9 @@ class SettingsPage extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.language),
-                title: const Text('Locale'),
+                title: const Text('Number format'),
                 subtitle: Text(
-                  '${override ?? systemDefaultLabel(settings.systemLocale)}'
+                  '${override == null ? systemDefaultLabel(settings.systemLocale) : localeDisplayName(override)}'
                   ' · ${sampleNumber(settings.effectiveLocale)}',
                 ),
                 onTap: () => _pickLocale(context),
@@ -112,11 +136,11 @@ class SettingsPage extends StatelessWidget {
 }
 
 String systemDefaultLabel(String systemLocale) =>
-    'System default ($systemLocale)';
+    'Same as phone (${localeDisplayName(systemLocale)})';
 
 /// A sample total in [locale], showing its separators.
 String sampleNumber(String locale) =>
-    formatTotal(ListTotal(Decimal.parse('-1234.56'), 2), locale);
+    formatTotal(ListTotal(Decimal.parse('1234.56'), 2), locale);
 
 /// A readable name for a SAF URI: its decoded last path segment, without
 /// the storage volume prefix (`primary:Sync/todo.md` → `todo.md`).
@@ -132,6 +156,71 @@ String fileDisplayName(String uri) {
   }
   final cut = name.lastIndexOf(RegExp('[/:]'));
   return cut < 0 || cut == name.length - 1 ? name : name.substring(cut + 1);
+}
+
+/// Open, create, or one of the recent files, which can be removed.
+class _ChangeFileSheet extends StatefulWidget {
+  const _ChangeFileSheet({required this.recent, required this.onRemove});
+
+  final List<RecentFile> recent;
+  final void Function(String uri) onRemove;
+
+  @override
+  State<_ChangeFileSheet> createState() => _ChangeFileSheetState();
+}
+
+class _ChangeFileSheetState extends State<_ChangeFileSheet> {
+  late final _recent = [...widget.recent];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: ConstrainedBox(
+        // Long recent lists scroll instead of covering the whole screen.
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.file_open_outlined),
+              title: const Text('Open existing file'),
+              onTap: () => Navigator.pop(context, const _OpenFile()),
+            ),
+            ListTile(
+              leading: const Icon(Icons.note_add_outlined),
+              title: const Text('Create new file'),
+              onTap: () => Navigator.pop(context, const _CreateFile()),
+            ),
+            if (_recent.isNotEmpty) ...[
+              const Divider(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Text('Recent files', style: theme.textTheme.titleSmall),
+              ),
+              for (final file in _recent)
+                ListTile(
+                  key: ValueKey(file.uri),
+                  leading: const Icon(Icons.history),
+                  title: Text(file.name),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Remove from recent files',
+                    onPressed: () {
+                      setState(() => _recent.remove(file));
+                      widget.onRemove(file.uri);
+                    },
+                  ),
+                  onTap: () => Navigator.pop(context, _RecentChoice(file.uri)),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// The result of the locale picker. A null [locale] means the system default.
@@ -166,15 +255,19 @@ class _LocalePickerPageState extends State<LocalePickerPage> {
     super.dispose();
   }
 
-  bool _matches(String text) {
-    final q = _search.text.trim().toLowerCase().replaceAll('-', '_');
-    return q.isEmpty || text.toLowerCase().contains(q);
+  /// Matches the readable name, or the code (`de_CH`, `de-CH`).
+  bool _matches(String name, [String? code]) {
+    final q = _search.text.trim().toLowerCase();
+    if (q.isEmpty || name.toLowerCase().contains(q)) return true;
+    return code != null && code.toLowerCase().contains(q.replaceAll('-', '_'));
   }
 
   @override
   Widget build(BuildContext context) {
     final systemLabel = systemDefaultLabel(widget.systemLocale);
-    final locales = _all.where(_matches).toList();
+    final locales = _all
+        .where((l) => _matches(localeDisplayName(l), l))
+        .toList();
     final showSystem = _matches(systemLabel);
     return Scaffold(
       appBar: AppBar(
@@ -182,7 +275,7 @@ class _LocalePickerPageState extends State<LocalePickerPage> {
           controller: _search,
           autofocus: false,
           decoration: const InputDecoration(
-            hintText: 'Search locales',
+            hintText: 'Search languages and countries',
             border: InputBorder.none,
           ),
           onChanged: (_) => setState(() {}),
@@ -209,7 +302,7 @@ class _LocalePickerPageState extends State<LocalePickerPage> {
           }
           final locale = locales[index - (showSystem ? 1 : 0)];
           return _tile(
-            title: locale,
+            title: localeDisplayName(locale),
             sample: sampleNumber(locale),
             selected: widget.current == locale,
             choice: _LocaleChoice(locale),

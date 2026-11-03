@@ -39,17 +39,14 @@ void main() {
     test('on an empty item creates a new list with the items below', () {
       final d = doc('# A\n- [ ] a\n- [ ] \n- [ ] b\n- [ ] c\n');
       final r = enter(d, idAt(d, 0, 1), 0);
-      expect(md(r.doc), '# A\n- [ ] a\n\n# New list\n- [ ] b\n- [ ] c\n');
-      expect(
-        r.cursor,
-        CursorTarget.listName(r.doc.lists[1].id, 0, 'New list'.length),
-      );
+      expect(md(r.doc), '# A\n- [ ] a\n\n# \n- [ ] b\n- [ ] c\n');
+      expect(r.cursor, CursorTarget.listName(r.doc.lists[1].id, 0, 0));
     });
 
     test('on the only (empty) item of a list', () {
       final d = doc('# A\n- [ ] \n\n# B\n- [ ] b\n');
       final r = enter(d, idAt(d, 0, 0), 0);
-      expect(md(r.doc), '# A\n- [ ] \n\n# New list\n- [ ] \n\n# B\n- [ ] b\n');
+      expect(md(r.doc), '# A\n- [ ] \n\n# \n- [ ] \n\n# B\n- [ ] b\n');
       expectInvariants(r.doc);
     });
   });
@@ -206,7 +203,7 @@ void main() {
 
   test('delete the last list', () {
     final d = doc('# A\n- [ ] a\n');
-    expect(md(deleteList(d, d.lists[0].id).doc), '# TODO\n- [ ] \n');
+    expect(md(deleteList(d, d.lists[0].id).doc), '# \n- [ ] \n');
   });
 
   test('delete items across lists, including the last item', () {

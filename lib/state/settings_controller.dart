@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:intl/number_symbols_data.dart';
 
+import '../model/locale_names.dart';
 import '../storage/settings.dart';
 
 /// The effective number locale: the one chosen in Settings, or the system
@@ -38,13 +39,16 @@ class SettingsController extends ChangeNotifier {
   }
 }
 
-/// The locales `intl` has number symbols for, sorted. Locales that write
-/// digits other than 0–9 are left out, because the number parser only reads
-/// ASCII digits (plan §2).
+/// The locales `intl` has number symbols for, sorted by their readable
+/// name. Locales that write digits other than 0–9 are left out, because the
+/// number parser only reads ASCII digits (plan §2), and so are old codes
+/// that duplicate a current one.
 List<String> selectableLocales() {
   final locales = [
     for (final e in numberFormatSymbols.entries)
-      if (e.value.ZERO_DIGIT == '0') e.key,
-  ]..sort();
-  return locales;
+      if (e.value.ZERO_DIGIT == '0' && !deprecatedLocaleAliases.contains(e.key))
+        e.key,
+  ];
+  final names = {for (final l in locales) l: localeDisplayName(l)};
+  return locales..sort((a, b) => names[a]!.compareTo(names[b]!));
 }

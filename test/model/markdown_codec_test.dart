@@ -64,8 +64,8 @@ void main() {
   });
 
   test('empty file', () {
-    expect(md(doc('')), '# TODO\n- [ ] \n');
-    expect(md(doc('\n\n')), '# TODO\n- [ ] \n');
+    expect(md(doc('')), '# \n- [ ] \n');
+    expect(md(doc('\n\n')), '# \n- [ ] \n');
   });
 
   test('empty items round-trip; header with no items gets one', () {

@@ -13,12 +13,11 @@ class ListFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final style = theme.textTheme.titleMedium!.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
+    final style = theme.textTheme.bodyLarge!.copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
       child: Text(
         'Total: $total',
         style: style,

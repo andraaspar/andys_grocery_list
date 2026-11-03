@@ -98,6 +98,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       _error = null;
     });
     await _settings?.setFileUri(uri);
+    for (final dropped in await _settings?.addRecentFile(uri) ?? const []) {
+      await _release(dropped);
+    }
     if (old != null) {
       await old.save();
       // The old home page is unmounted after the next frame.
@@ -120,6 +123,59 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     return (changed: error == null, error: error);
   }
 
+  /// The recent files other than the current one, by name. Files that no
+  /// longer exist are forgotten.
+  Future<List<RecentFile>> _recentFiles() async {
+    final settings = _settings;
+    if (settings == null) return const [];
+    final current = _document?.uri;
+    final kept = <String>[];
+    final out = <RecentFile>[];
+    for (final uri in settings.recentFiles) {
+      String? name;
+      try {
+        name = await _storage.displayName(uri);
+      } on PlatformException {
+        name = null;
+      }
+      if (name == null && uri != current) {
+        await _release(uri);
+        continue;
+      }
+      kept.add(uri);
+      if (uri != current) out.add((uri: uri, name: name!));
+    }
+    if (kept.length != settings.recentFiles.length) {
+      await settings.setRecentFiles(kept);
+    }
+    return out;
+  }
+
+  Future<void> _removeRecentFile(String uri) async {
+    final settings = _settings;
+    if (settings == null) return;
+    await settings.setRecentFiles(
+      settings.recentFiles.where((u) => u != uri).toList(),
+    );
+    await _release(uri);
+  }
+
+  /// Gives up access to [uri], unless it is the current file.
+  Future<void> _release(String uri) async {
+    if (uri == _document?.uri) return;
+    try {
+      await _storage.releasePermission(uri);
+    } on PlatformException {
+      // Nothing to do.
+    }
+  }
+
+  Future<FileChange> _openRecentFile(String uri) async {
+    final error = await _openUri(uri);
+    if (error != null) await _removeRecentFile(uri);
+    return (changed: error == null, error: error);
+  }
+
   /// From the welcome page: errors are shown on the page.
   Future<void> _pickFromWelcome(Future<String?> Function() picker) async {
     final result = await _pick(picker);
@@ -138,6 +194,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           fileUri: _document?.uri,
           onOpenFile: () => _pick(_storage.openDocument),
           onCreateFile: () => _pick(() => _storage.createDocument('todo.md')),
+          recentFiles: _recentFiles,
+          onOpenRecentFile: _openRecentFile,
+          onRemoveRecentFile: _removeRecentFile,
         ),
       ),
     );
@@ -221,6 +280,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       key: ValueKey(doc),
       document: doc,
       scrollMemory: ScrollMemory(_settings!, doc.uri!),
+      helpExpanded: _settings!.helpExpanded,
+      onHelpExpandedChanged: _settings!.setHelpExpanded,
       onOpenSettings: _openSettings,
     );
   }

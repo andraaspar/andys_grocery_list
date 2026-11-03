@@ -19,6 +19,12 @@ abstract class DocumentStorage {
 
   /// Milliseconds since the epoch, or null if the provider does not say.
   Future<int?> lastModified(String uri);
+
+  /// The file's name, or null if it no longer exists or can't be reached.
+  Future<String?> displayName(String uri);
+
+  /// Gives up the app's lasting access to [uri]. Does nothing if it had none.
+  Future<void> releasePermission(String uri);
 }
 
 /// The Storage Access Framework, through the Kotlin channel in
@@ -51,4 +57,12 @@ class SafStorage implements DocumentStorage {
   @override
   Future<int?> lastModified(String uri) =>
       _channel.invokeMethod<int>('lastModified', {'uri': uri});
+
+  @override
+  Future<String?> displayName(String uri) =>
+      _channel.invokeMethod<String>('displayName', {'uri': uri});
+
+  @override
+  Future<void> releasePermission(String uri) =>
+      _channel.invokeMethod<void>('releasePermission', {'uri': uri});
 }

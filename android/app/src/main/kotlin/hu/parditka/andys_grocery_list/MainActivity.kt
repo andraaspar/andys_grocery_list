@@ -55,9 +55,39 @@ class MainActivity : FlutterActivity() {
 
             "hasPermission" -> {
                 val uri = Uri.parse(call.argument<String>("uri"))
-                result.success(contentResolver.persistedUriPermissions.any {
-                    it.uri == uri && it.isReadPermission && it.isWritePermission
-                })
+                result.success(hasPermission(uri))
+            }
+
+            // Null when the file is gone or can't be reached.
+            "displayName" -> background(result) {
+                val uri = Uri.parse(call.argument<String>("uri"))
+                if (!hasPermission(uri)) return@background null
+                try {
+                    contentResolver.query(
+                        uri,
+                        arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )?.use { c ->
+                        if (c.moveToFirst() && !c.isNull(0)) c.getString(0) else null
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            "releasePermission" -> {
+                val uri = Uri.parse(call.argument<String>("uri"))
+                try {
+                    contentResolver.releasePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                } catch (e: SecurityException) {
+                    // It had no lasting access.
+                }
+                result.success(null)
             }
 
             "read" -> background(result) {
@@ -92,6 +122,10 @@ class MainActivity : FlutterActivity() {
 
             else -> result.notImplemented()
         }
+    }
+
+    private fun hasPermission(uri: Uri) = contentResolver.persistedUriPermissions.any {
+        it.uri == uri && it.isReadPermission && it.isWritePermission
     }
 
     private fun pick(result: MethodChannel.Result, requestCode: Int, intent: () -> Intent) {

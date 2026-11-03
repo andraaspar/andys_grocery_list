@@ -9,8 +9,9 @@ import 'markdown_codec.dart';
 import 'number_parser.dart';
 import 'todo_document.dart';
 
-const defaultNewListName = 'New list';
-const emptyDocumentListName = 'TODO';
+/// New lists start unnamed; the name field shows a placeholder.
+const defaultNewListName = '';
+const emptyDocumentListName = '';
 
 /// Where focus goes after an operation. Offsets are model offsets (no
 /// sentinel). If [isListName], [id] is a list id, otherwise an item id.

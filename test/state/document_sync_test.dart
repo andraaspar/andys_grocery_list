@@ -125,10 +125,10 @@ void main() {
     tester,
   ) async {
     final (storage, c) = await open('');
-    expect(md(c.doc), '# TODO\n- [ ] \n');
+    expect(md(c.doc), '# \n- [ ] \n');
     c.setItemText(c.doc.lists.single.items.single.id, 'Milk');
     await c.save();
-    expect(storage.files[uri], '# TODO\n- [ ] Milk\n');
+    expect(storage.files[uri], '# \n- [ ] Milk\n');
   });
 
   group('reuseIds', () {
