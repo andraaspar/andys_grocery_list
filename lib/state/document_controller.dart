@@ -1,0 +1,79 @@
+import 'package:flutter/foundation.dart';
+
+import '../model/number_parser.dart';
+import '../model/operations.dart' as ops;
+import '../model/todo_document.dart';
+
+/// Holds the document and applies edit operations to it (plan §9).
+///
+/// Storage (autosave, reload) arrives in milestone 7; for now the document
+/// lives in memory only.
+class DocumentController extends ChangeNotifier {
+  DocumentController(TodoDocument doc, {NumberContext? numberContext})
+    : _doc = ops.normalize(doc),
+      numberContext = numberContext ?? NumberContext.en;
+
+  TodoDocument _doc;
+  TodoDocument get doc => _doc;
+
+  NumberContext numberContext;
+
+  /// Where focus should go after the last operation. The UI consumes it with
+  /// [takeCursor].
+  ops.CursorTarget? _pendingCursor;
+
+  ops.CursorTarget? takeCursor() {
+    final c = _pendingCursor;
+    _pendingCursor = null;
+    return c;
+  }
+
+  void _apply(ops.OpResult? r) {
+    if (r == null) return;
+    _doc = r.doc;
+    if (r.cursor != null) _pendingCursor = r.cursor;
+    notifyListeners();
+  }
+
+  /// Requests focus somewhere without changing the document.
+  void focus(ops.CursorTarget target) {
+    _pendingCursor = target;
+    notifyListeners();
+  }
+
+  void setItemText(String itemId, String text) {
+    final item = _doc.itemById(itemId);
+    if (item == null || item.text == text) return;
+    _apply(ops.setItemText(_doc, itemId, text));
+  }
+
+  /// Enter in an item whose current text is [text], at [offset].
+  void enter(String itemId, String text, int offset) {
+    if (_doc.itemById(itemId) == null) return;
+    final synced = ops.setItemText(_doc, itemId, text).doc;
+    _apply(ops.enter(synced, itemId, offset));
+  }
+
+  void backspaceAtStart(String itemId) {
+    if (_doc.itemById(itemId) == null) return;
+    _apply(ops.backspaceAtStart(_doc, itemId));
+  }
+
+  void paste(String itemId, int start, int end, String text) {
+    if (_doc.itemById(itemId) == null) return;
+    _apply(ops.paste(_doc, itemId, start, end, text));
+  }
+
+  void cycleState(String itemId) => _apply(ops.cycleState(_doc, itemId));
+
+  void renameList(String listId, String name) {
+    final i = _doc.listIndexOf(listId);
+    if (i < 0 || _doc.lists[i].name == name) return;
+    _apply(ops.renameList(_doc, listId, name));
+  }
+
+  void itemBlurred(String itemId) {
+    final r = ops.normalizeQuantityOnBlur(_doc, itemId, numberContext);
+    if (!identical(r.doc, _doc)) _apply(r);
+  }
+}
