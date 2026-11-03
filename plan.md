@@ -133,7 +133,8 @@ enum ItemState { newItem, done, failed }
   - `0x` is a valid quantity of zero, and contributes 0 to the total.
 
 ### Unit price
-- The price is also **part of the item text**. It is a signed number token (§2 Numbers) at the **very end** of the text, preceded by whitespace or by the start of the text.
+- The price is also **part of the item text**. It is a signed number token (§2 Numbers) at the **end** of the text, preceded by whitespace or by the start of the text.
+  - Trailing whitespace after the number is ignored (`Milk 1.29 ` still has a price). Any other visible character after it means there is no price.
   - Examples (English locale): `Milk 1.29` → 1.29. `Bread 2,49` → 2.49. `Machine 1.299,00` → 1299. `TV 1,299.00` → 1299. `Coupon -1` → −1. `3x Milk 1.29` → quantity 3, price 1.29. `Milk` → no price.
   - Prices **can be negative** (a leading `-` or `−`), for things like discounts and coupons.
   - A trailing token that is not exactly a number is not a price: `Room 12b`, `v2`, `12.34.5`, `5€`.
@@ -404,7 +405,7 @@ android/app/src/main/kotlin/hu/parditka/andys_grocery_list/MainActivity.kt   # S
 - **Amount unit tests:**
   - Quantity parsing: `3x Milk`, `1,5x`, `0.25x`, `Milk`, `2x`, `0x`, `.5x` (not a quantity), `12x  spaced`.
   - Increment: `Milk` → `2x Milk`, `9x` → `10x`, `1,5x` → `2,5x`, `0.25x` → `1.25x`, an empty item → `2x `. The returned selection covers exactly the number.
-  - Price parsing: `Milk 1.29`, `Bread 2,49`, `Machine 1.299,00`, `Coupon -1`, `5`, `3x 2`, `2x` (no price), `Room 12b`, `5€` (no price), `Milk  -0.5`.
+  - Price parsing: `Milk 1.29`, `Bread 2,49`, `Machine 1.299,00`, `Coupon -1`, `5`, `3x 2`, `2x` (no price), `Room 12b`, `5€` (no price), `Milk  -0.5`, `Milk 1.29 ` (trailing whitespace), `Milk 1.29 .` (no price).
   - Totals: only DONE items count; quantity × price; negatives; exact decimals (`3 × 0.1 = 0.3`); a list with no prices → no total line.
   - Total formatting per locale: thousands separator, decimal separator and minus sign; the number of decimal places follows the list's prices; rounding half-up.
 - **Operation unit tests:**
