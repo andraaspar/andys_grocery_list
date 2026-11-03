@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
@@ -13,6 +16,7 @@ import 'dialogs.dart';
 import 'item_row.dart';
 import 'list_footer.dart';
 import 'list_header.dart';
+import 'scroll_memory.dart';
 import 'sentinel_controller.dart';
 
 /// Approximate height of one item row, used to size the space below the last
@@ -22,38 +26,44 @@ const itemRowHeight = 48.0;
 /// The main screen: one scrolling list of list headers, item rows and total
 /// lines, followed by blank space.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.document});
+  const HomePage({super.key, required this.document, this.scrollMemory});
 
   final DocumentController document;
+
+  /// Where the scroll position is remembered. Null: it is not.
+  final ScrollMemory? scrollMemory;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 sealed class _Row {
-  const _Row(this.key);
+  const _Row(this.key, this.pos);
   final String key;
+  final RowPosition pos;
 }
 
 class _HeaderRow extends _Row {
-  _HeaderRow(this.list) : super(_listKey(list.id));
+  _HeaderRow(this.list, int l) : super(_listKey(list.id), (list: l, item: -1));
   final TodoList list;
 }
 
 class _ItemRow extends _Row {
-  _ItemRow(this.list, this.item) : super(item.id);
+  _ItemRow(this.list, this.item, int l, int i)
+    : super(item.id, (list: l, item: i));
   final TodoList list;
   final TodoItem item;
 }
 
 class _FooterRow extends _Row {
-  _FooterRow(this.list, this.total) : super('total:${list.id}');
+  _FooterRow(this.list, this.total, int l)
+    : super('total:${list.id}', (list: l, item: list.items.length));
   final TodoList list;
   final String total;
 }
 
 class _SpaceRow extends _Row {
-  const _SpaceRow() : super('space');
+  const _SpaceRow(int lists) : super('space', (list: lists, item: -1));
 }
 
 String _listKey(String listId) => 'list:$listId';
@@ -70,7 +80,7 @@ class _NameField {
   final FocusNode focusNode;
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final _items = <String, _ItemField>{};
   final _names = <String, _NameField>{};
   final _listController = ListController();
@@ -80,19 +90,33 @@ class _HomePageState extends State<HomePage> {
   List<_Row> _rows = const [];
   Map<String, int> _rowIndex = const {};
 
+  /// The mounted row widgets, by row key, for measuring the scroll anchor.
+  final _rowContexts = <String, BuildContext>{};
+  Timer? _anchorSaveTimer;
+
   DocumentController get _document => widget.document;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _document.addListener(_onDocumentChanged);
+    _document.onReloadedBeforeSave = _onReloadedBeforeSave;
     _selection.addListener(_onSelectionChanged);
     _syncFields();
     _buildRows();
+    final anchor = widget.scrollMemory?.load();
+    if (anchor != null) _restoreAnchor(anchor);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _anchorSaveTimer?.cancel();
+    _saveAnchor();
+    if (_document.onReloadedBeforeSave == _onReloadedBeforeSave) {
+      _document.onReloadedBeforeSave = null;
+    }
     _document.removeListener(_onDocumentChanged);
     _selection.removeListener(_onSelectionChanged);
     _selection.dispose();
@@ -110,29 +134,58 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onDocumentChanged() {
+    // A reload from the file keeps the view on the same row (plan §3).
+    // Reloads keep the ids of unchanged rows, so the row is found by key
+    // first, and by position if it is gone.
+    final anchor = _document.reloading ? _currentAnchor() : null;
+    final anchorKey = anchor == null ? null : _rows[_rowIndexAt(anchor)].key;
     _syncFields();
     _selection.retainOnly(_items.keys.toSet());
     setState(_buildRows);
     final cursor = _document.takeCursor();
     if (cursor != null) _moveCursor(cursor);
+    if (anchor != null) {
+      final index = _rowIndex[anchorKey];
+      if (index != null) {
+        _jumpToRow(index, anchor.offset);
+      } else {
+        _restoreAnchor(anchor);
+      }
+    }
+  }
+
+  void _onReloadedBeforeSave() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('File changed externally — reloaded')),
+      );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) _saveAnchor();
   }
 
   void _onSelectionChanged() => setState(() {});
 
   void _buildRows() {
     final rows = <_Row>[];
-    for (final list in _document.doc.lists) {
-      rows.add(_HeaderRow(list));
-      for (final item in list.items) {
-        rows.add(_ItemRow(list, item));
+    final lists = _document.doc.lists;
+    for (var l = 0; l < lists.length; l++) {
+      final list = lists[l];
+      rows.add(_HeaderRow(list, l));
+      for (var i = 0; i < list.items.length; i++) {
+        rows.add(_ItemRow(list, list.items[i], l, i));
       }
       // After the last item, so it never moves the items above (plan §4).
       final total = listTotal(list, _document.numberContext);
       if (total != null) {
-        rows.add(_FooterRow(list, formatTotal(total, _document.locale)));
+        rows.add(_FooterRow(list, formatTotal(total, _document.locale), l));
       }
     }
-    rows.add(const _SpaceRow());
+    rows.add(_SpaceRow(lists.length));
     _rows = rows;
     _rowIndex = {for (var i = 0; i < rows.length; i++) rows[i].key: i};
   }
@@ -209,6 +262,77 @@ class _HomePageState extends State<HomePage> {
     TextEditingController(text: list.name),
     FocusNode(debugLabel: 'list ${list.id}'),
   );
+
+  // -------------------------------------------------------------------------
+  // Scroll memory (plan §3, Scrolling)
+
+  /// The scroll offset at which the row's top is at the top of the viewport,
+  /// or null if the row is not laid out.
+  double? _rowTop(String rowKey) {
+    final ro = _rowContexts[rowKey]?.findRenderObject();
+    if (ro == null || !ro.attached) return null;
+    return RenderAbstractViewport.of(ro).getOffsetToReveal(ro, 0).offset;
+  }
+
+  ScrollAnchor? _currentAnchor() {
+    if (!_listController.isAttached || !_scrollController.hasClients) {
+      return null;
+    }
+    final range = _listController.visibleRange;
+    if (range == null || range.$1 >= _rows.length) return null;
+    final row = _rows[range.$1];
+    final top = _rowTop(row.key);
+    final offset = top == null ? 0.0 : _scrollController.offset - top;
+    return ScrollAnchor(row.pos, offset < 0 ? 0 : offset);
+  }
+
+  void _saveAnchor() {
+    final memory = widget.scrollMemory;
+    final anchor = _currentAnchor();
+    if (memory != null && anchor != null) memory.save(anchor);
+  }
+
+  void _scheduleAnchorSave() {
+    if (widget.scrollMemory == null) return;
+    _anchorSaveTimer?.cancel();
+    _anchorSaveTimer = Timer(const Duration(milliseconds: 300), _saveAnchor);
+  }
+
+  int _rowIndexAt(ScrollAnchor anchor) =>
+      anchor.resolve([for (final r in _rows) r.pos]).index;
+
+  /// Jumps to [anchor] after the next layout, without animation. If its row
+  /// is gone, the closest earlier row is used.
+  void _restoreAnchor(ScrollAnchor anchor) {
+    final target = anchor.resolve([for (final r in _rows) r.pos]);
+    _jumpToRow(target.index, target.offset);
+  }
+
+  /// After the next layout, jumps to the row at [index] and scrolls [offset]
+  /// pixels past its top: first to the row, then, once it is laid out, by
+  /// the exact pixel offset.
+  void _jumpToRow(int index, double offset) {
+    final rowKey = _rows[index].key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_listController.isAttached) return;
+      if (!_scrollController.hasClients) return;
+      _listController.jumpToItem(
+        index: index,
+        scrollController: _scrollController,
+        alignment: 0,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final top = _rowTop(rowKey);
+        if (top == null) return;
+        final p = _scrollController.position;
+        _scrollController.jumpTo(
+          (top + offset).clamp(p.minScrollExtent, p.maxScrollExtent),
+        );
+      });
+      WidgetsBinding.instance.scheduleFrame();
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Focus
@@ -375,16 +499,29 @@ class _HomePageState extends State<HomePage> {
       },
       child: Scaffold(
         appBar: _buildAppBar(),
-        body: LayoutBuilder(
-          builder: (context, constraints) => SuperListView.builder(
-            listController: _listController,
-            controller: _scrollController,
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-            itemCount: _rows.length,
-            findChildIndexCallback: (key) =>
-                key is ValueKey<String> ? _rowIndex[key.value] : null,
-            itemBuilder: (context, index) =>
-                _buildRow(_rows[index], constraints.maxHeight),
+        body: NotificationListener<ScrollEndNotification>(
+          onNotification: (_) {
+            _scheduleAnchorSave();
+            return false;
+          },
+          child: LayoutBuilder(
+            builder: (context, constraints) => SuperListView.builder(
+              listController: _listController,
+              controller: _scrollController,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+              itemCount: _rows.length,
+              findChildIndexCallback: (key) =>
+                  key is ValueKey<String> ? _rowIndex[key.value] : null,
+              itemBuilder: (context, index) {
+                final row = _rows[index];
+                return _TrackedRow(
+                  key: ValueKey(row.key),
+                  rowKey: row.key,
+                  contexts: _rowContexts,
+                  child: _buildRow(row, constraints.maxHeight),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -392,12 +529,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildRow(_Row row, double viewportHeight) {
-    final key = ValueKey(row.key);
     switch (row) {
       case _HeaderRow(:final list):
         final f = _names[list.id]!;
         return ListHeader(
-          key: key,
           controller: f.controller,
           focusNode: f.focusNode,
           onChanged: (name) => _document.renameList(list.id, name),
@@ -408,7 +543,6 @@ class _HomePageState extends State<HomePage> {
         final f = _items[item.id]!;
         final selecting = _selection.active;
         return ItemRow(
-          key: key,
           item: item,
           controller: f.controller,
           focusNode: f.focusNode,
@@ -422,10 +556,9 @@ class _HomePageState extends State<HomePage> {
           onToggleSelection: () => _selection.toggle(item.id),
         );
       case _FooterRow(:final total):
-        return ListFooter(key: key, total: total);
+        return ListFooter(total: total);
       case _SpaceRow():
         return GestureDetector(
-          key: key,
           behavior: HitTestBehavior.opaque,
           onTap: _focusLastItem,
           child: SizedBox(
@@ -437,4 +570,50 @@ class _HomePageState extends State<HomePage> {
         );
     }
   }
+}
+
+/// Registers its context under [rowKey] while mounted, so the page can
+/// measure where the row is.
+class _TrackedRow extends StatefulWidget {
+  const _TrackedRow({
+    super.key,
+    required this.rowKey,
+    required this.contexts,
+    required this.child,
+  });
+
+  final String rowKey;
+  final Map<String, BuildContext> contexts;
+  final Widget child;
+
+  @override
+  State<_TrackedRow> createState() => _TrackedRowState();
+}
+
+class _TrackedRowState extends State<_TrackedRow> {
+  @override
+  void initState() {
+    super.initState();
+    widget.contexts[widget.rowKey] = context;
+  }
+
+  @override
+  void didUpdateWidget(_TrackedRow old) {
+    super.didUpdateWidget(old);
+    if (old.rowKey != widget.rowKey) {
+      if (old.contexts[old.rowKey] == context) old.contexts.remove(old.rowKey);
+      widget.contexts[widget.rowKey] = context;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (widget.contexts[widget.rowKey] == context) {
+      widget.contexts.remove(widget.rowKey);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
