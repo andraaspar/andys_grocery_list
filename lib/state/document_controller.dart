@@ -111,6 +111,12 @@ class DocumentController extends ChangeNotifier {
     _apply(ops.deleteDone(_doc, listId));
   }
 
+  /// Deletes the selected items (plan §6).
+  void deleteItems(Set<String> itemIds) {
+    if (itemIds.isEmpty) return;
+    _apply(ops.deleteItems(_doc, itemIds));
+  }
+
   void deleteList(String listId) {
     if (_doc.listIndexOf(listId) < 0) return;
     _apply(ops.deleteList(_doc, listId));

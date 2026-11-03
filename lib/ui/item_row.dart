@@ -12,6 +12,10 @@ class ItemRow extends StatelessWidget {
     required this.focusNode,
     required this.onCycleState,
     required this.onIncrement,
+    this.onLongPressIcon,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onToggleSelection,
   });
 
   final TodoItem item;
@@ -21,6 +25,15 @@ class ItemRow extends StatelessWidget {
 
   /// The + button. Hidden when null (selection mode, §6).
   final VoidCallback? onIncrement;
+
+  /// Long-pressing the state icon enters selection mode (§6).
+  final VoidCallback? onLongPressIcon;
+
+  /// In selection mode the text can't be edited, and tapping the icon or the
+  /// row calls [onToggleSelection] instead of changing the state.
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback? onToggleSelection;
 
   static IconData iconFor(ItemState state) => switch (state) {
     ItemState.newItem => Icons.check_box_outline_blank,
@@ -43,7 +56,7 @@ class ItemRow extends StatelessWidget {
           )
         : base;
 
-    return Row(
+    final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         IconButton(
@@ -56,7 +69,8 @@ class ItemRow extends StatelessWidget {
             ItemState.done => 'Done',
             ItemState.failed => 'Failed',
           },
-          onPressed: onCycleState,
+          onPressed: selectionMode ? onToggleSelection : onCycleState,
+          onLongPress: selectionMode ? null : onLongPressIcon,
         ),
         Expanded(
           child: Padding(
@@ -65,14 +79,20 @@ class ItemRow extends StatelessWidget {
               bottom: 12,
               right: onIncrement == null ? 16 : 0,
             ),
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              maxLines: null,
-              style: style,
-              decoration: const InputDecoration.collapsed(hintText: ''),
+            // Always wrapped, so toggling selection mode keeps the field's
+            // state.
+            child: IgnorePointer(
+              ignoring: selectionMode,
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                readOnly: selectionMode,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                maxLines: null,
+                style: style,
+                decoration: const InputDecoration.collapsed(hintText: ''),
+              ),
             ),
           ),
         ),
@@ -83,6 +103,16 @@ class ItemRow extends StatelessWidget {
             onPressed: onIncrement,
           ),
       ],
+    );
+
+    return Material(
+      color: selected
+          ? theme.colorScheme.secondaryContainer
+          : Colors.transparent,
+      child: InkWell(
+        onTap: selectionMode ? onToggleSelection : null,
+        child: row,
+      ),
     );
   }
 }

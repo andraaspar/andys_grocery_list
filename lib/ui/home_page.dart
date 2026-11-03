@@ -5,9 +5,10 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 import '../app_name.dart';
 import '../model/amounts.dart';
 import '../model/clipboard_format.dart';
-import '../model/operations.dart' show CursorTarget;
+import '../model/operations.dart' show CursorTarget, itemsInOrder;
 import '../model/todo_document.dart';
 import '../state/document_controller.dart';
+import '../state/selection_controller.dart';
 import 'dialogs.dart';
 import 'item_row.dart';
 import 'list_footer.dart';
@@ -74,6 +75,7 @@ class _HomePageState extends State<HomePage> {
   final _names = <String, _NameField>{};
   final _listController = ListController();
   final _scrollController = ScrollController();
+  final _selection = SelectionController();
 
   List<_Row> _rows = const [];
   Map<String, int> _rowIndex = const {};
@@ -84,6 +86,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _document.addListener(_onDocumentChanged);
+    _selection.addListener(_onSelectionChanged);
     _syncFields();
     _buildRows();
   }
@@ -91,6 +94,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _document.removeListener(_onDocumentChanged);
+    _selection.removeListener(_onSelectionChanged);
+    _selection.dispose();
     for (final f in _items.values) {
       f.controller.dispose();
       f.focusNode.dispose();
@@ -106,10 +111,13 @@ class _HomePageState extends State<HomePage> {
 
   void _onDocumentChanged() {
     _syncFields();
+    _selection.retainOnly(_items.keys.toSet());
     setState(_buildRows);
     final cursor = _document.takeCursor();
     if (cursor != null) _moveCursor(cursor);
   }
+
+  void _onSelectionChanged() => setState(() {});
 
   void _buildRows() {
     final rows = <_Row>[];
@@ -300,22 +308,84 @@ class _HomePageState extends State<HomePage> {
   }
 
   // -------------------------------------------------------------------------
+  // Selection mode (plan §6)
+
+  void _enterSelection(String itemId) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _selection.select(itemId);
+  }
+
+  Future<void> _copySelected() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final items = itemsInOrder(_document.doc, _selection.ids);
+    await Clipboard.setData(
+      ClipboardData(text: formatItems(items, _document.numberContext)),
+    );
+    final n = items.length;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Copied $n ${n == 1 ? 'item' : 'items'}')),
+      );
+  }
+
+  Future<void> _deleteSelected() async {
+    final ids = _selection.ids;
+    if (ids.length > 1 && !await confirmDeleteItems(context, ids.length)) {
+      return;
+    }
+    _selection.clear();
+    _document.deleteItems(ids);
+  }
+
+  AppBar _buildAppBar() {
+    if (!_selection.active) return AppBar(title: Text(appName()));
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Close',
+        onPressed: _selection.clear,
+      ),
+      title: Text('${_selection.count} selected'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.copy),
+          tooltip: 'Copy',
+          onPressed: _copySelected,
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Delete',
+          onPressed: _deleteSelected,
+        ),
+      ],
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Build
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(appName())),
-      body: LayoutBuilder(
-        builder: (context, constraints) => SuperListView.builder(
-          listController: _listController,
-          controller: _scrollController,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-          itemCount: _rows.length,
-          findChildIndexCallback: (key) =>
-              key is ValueKey<String> ? _rowIndex[key.value] : null,
-          itemBuilder: (context, index) =>
-              _buildRow(_rows[index], constraints.maxHeight),
+    return PopScope(
+      // Back leaves selection mode instead of the app.
+      canPop: !_selection.active,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _selection.clear();
+      },
+      child: Scaffold(
+        appBar: _buildAppBar(),
+        body: LayoutBuilder(
+          builder: (context, constraints) => SuperListView.builder(
+            listController: _listController,
+            controller: _scrollController,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+            itemCount: _rows.length,
+            findChildIndexCallback: (key) =>
+                key is ValueKey<String> ? _rowIndex[key.value] : null,
+            itemBuilder: (context, index) =>
+                _buildRow(_rows[index], constraints.maxHeight),
+          ),
         ),
       ),
     );
@@ -336,13 +406,20 @@ class _HomePageState extends State<HomePage> {
         );
       case _ItemRow(:final item):
         final f = _items[item.id]!;
+        final selecting = _selection.active;
         return ItemRow(
           key: key,
           item: item,
           controller: f.controller,
           focusNode: f.focusNode,
           onCycleState: () => _document.cycleState(item.id),
-          onIncrement: () => _document.incrementQuantity(item.id),
+          onIncrement: selecting
+              ? null
+              : () => _document.incrementQuantity(item.id),
+          onLongPressIcon: () => _enterSelection(item.id),
+          selectionMode: selecting,
+          selected: _selection.contains(item.id),
+          onToggleSelection: () => _selection.toggle(item.id),
         );
       case _FooterRow(:final total):
         return ListFooter(key: key, total: total);

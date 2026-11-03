@@ -448,4 +448,158 @@ void main() {
       expect(serialized(doc), '# TODO\n- [ ] \n');
     });
   });
+
+  group('selection mode', selectionTests);
+}
+
+/// Captures text written to the clipboard. Read the latest value with the
+/// returned function.
+String? Function() captureClipboard(WidgetTester tester) {
+  String? copied;
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    SystemChannels.platform,
+    (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    },
+  );
+  addTearDown(
+    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      null,
+    ),
+  );
+  return () => copied;
+}
+
+void selectionTests() {
+  /// Long-presses the state icon of the item with [text].
+  Future<void> longPressIcon(WidgetTester tester, String text) async {
+    final row = find.ancestor(of: itemField(text), matching: find.byType(Row));
+    await tester.longPress(
+      find.descendant(of: row.first, matching: find.byType(IconButton)).first,
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> tapRow(WidgetTester tester, String text) async {
+    // The text field ignores pointers in selection mode; the row gets the tap.
+    await tester.tap(
+      find.ancestor(of: itemField(text), matching: find.byType(InkWell)).first,
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('long-pressing a state icon enters selection mode', (
+    tester,
+  ) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n- [ ] b\n');
+    await focusItem(tester, 'b', 0);
+    expect(find.byIcon(Icons.add), findsNWidgets(2));
+
+    await longPressIcon(tester, 'a');
+    expect(find.text('1 selected'), findsOneWidget);
+    expect(find.byIcon(Icons.add), findsNothing);
+    expect(hasFocus(tester, itemField('b')), isFalse);
+    expect(serialized(doc), '# L\n- [ ] a\n- [ ] b\n');
+  });
+
+  testWidgets('tapping icons and rows toggles selection, not state', (
+    tester,
+  ) async {
+    final doc = await pump(tester, '# A\n- [ ] a\n\n# B\n- [x] b\n- [ ] c\n');
+    await longPressIcon(tester, 'a');
+    await tapRow(tester, 'b');
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('New').last);
+    await tester.pumpAndSettle();
+    expect(find.text('3 selected'), findsOneWidget);
+    expect(serialized(doc), '# A\n- [ ] a\n\n# B\n- [x] b\n- [ ] c\n');
+    expect(tester.testTextInput.isVisible, isFalse);
+
+    await tapRow(tester, 'b');
+    expect(find.text('2 selected'), findsOneWidget);
+  });
+
+  testWidgets('deselecting the last item leaves selection mode', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await longPressIcon(tester, 'a');
+    await tapRow(tester, 'a');
+    expect(find.text('1 selected'), findsNothing);
+    expect(find.byIcon(Icons.add), findsOneWidget);
+  });
+
+  testWidgets('Close and the back button leave selection mode', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await longPressIcon(tester, 'a');
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsNothing);
+
+    await longPressIcon(tester, 'a');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsNothing);
+    expect(find.byType(HomePage), findsOneWidget);
+  });
+
+  testWidgets('Copy of NEW items uses the dash prefix, in document order', (
+    tester,
+  ) async {
+    final copied = captureClipboard(tester);
+    await pump(tester, '# A\n- [ ] 1x a\n\n# B\n- [ ] 3x b\n- [ ] c\n');
+    await longPressIcon(tester, 'c');
+    await tapRow(tester, '1x a');
+    await tester.tap(find.byTooltip('Copy'));
+    await tester.pumpAndSettle();
+    expect(copied(), '- a\n- c\n');
+    expect(find.text('Copied 2 items'), findsOneWidget);
+    expect(find.text('2 selected'), findsOneWidget);
+  });
+
+  testWidgets('Copy of mixed items uses the backing format', (tester) async {
+    final copied = captureClipboard(tester);
+    await pump(tester, '# L\n- [ ] a\n- [x] b\n- [x] FAILED c\n');
+    await longPressIcon(tester, 'a');
+    await tapRow(tester, 'b');
+    await tapRow(tester, 'c');
+    await tester.tap(find.byTooltip('Copy'));
+    await tester.pumpAndSettle();
+    expect(copied(), '- [ ] a\n- [x] b\n- [x] FAILED c\n');
+    expect(find.text('Copied 3 items'), findsOneWidget);
+  });
+
+  testWidgets('Delete of one item does not ask', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n- [ ] b\n');
+    await longPressIcon(tester, 'a');
+    await tester.tap(find.byTooltip('Delete'));
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [ ] b\n');
+    expect(find.text('1 selected'), findsNothing);
+  });
+
+  testWidgets('Delete of several items asks first', (tester) async {
+    final doc = await pump(tester, '# A\n- [ ] a\n\n# B\n- [ ] b\n- [ ] c\n');
+    await longPressIcon(tester, 'a');
+    await tapRow(tester, 'b');
+    await tester.tap(find.byTooltip('Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete 2 selected items?'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# A\n- [ ] \n\n# B\n- [ ] c\n');
+    expect(find.text('2 selected'), findsNothing);
+  });
 }
