@@ -1,6 +1,7 @@
 import 'package:andys_grocery_list/app.dart';
 import 'package:andys_grocery_list/ui/home_page.dart';
 import 'package:andys_grocery_list/ui/sentinel_controller.dart';
+import 'package:andys_grocery_list/ui/settings_page.dart';
 import 'package:andys_grocery_list/ui/welcome_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -169,6 +170,148 @@ void main() {
     await tester.pumpAndSettle();
     expect(itemField(anchored), findsOneWidget);
     expect(tester.getTopLeft(itemField(anchored)).dy, closeTo(before, 1));
+  });
+
+  group('settings', () {
+    Future<void> openSettings(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> pickLocale(
+      WidgetTester tester,
+      String search,
+      String tap,
+    ) async {
+      await tester.tap(find.text('Locale'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), search);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(of: find.byType(ListTile), matching: find.text(tap)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('opens from the overflow menu and shows the file', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'fileUri': 'content://x/document/primary%3ASync%2Fgroceries.md',
+      });
+      await pumpApp(
+        tester,
+        FakeStorage({
+          'content://x/document/primary%3ASync%2Fgroceries.md': '# L\n',
+        }),
+      );
+      await openSettings(tester);
+      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(find.text('groceries.md'), findsOneWidget);
+      expect(find.textContaining('System default (en_US)'), findsOneWidget);
+    });
+
+    testWidgets('changing the locale re-formats totals, not the file', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri});
+      const content = '# L\n- [x] Machine 1234.50\n';
+      final storage = FakeStorage({uri: content});
+      await pumpApp(tester, storage);
+      expect(find.text('Total: 1,234.50'), findsOneWidget);
+
+      await openSettings(tester);
+      await pickLocale(tester, 'de', 'de');
+      expect(find.textContaining('de · '), findsOneWidget);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('locale'), 'de');
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Total: 1.234,50'), findsOneWidget);
+      pause(tester);
+      await tester.pump();
+      expect(storage.files[uri], content);
+      expect(storage.writes, isEmpty);
+
+      // Back to the system default.
+      resume(tester);
+      await tester.pumpAndSettle();
+      await openSettings(tester);
+      await pickLocale(tester, 'system', 'System default (en_US)');
+      expect(prefs.getString('locale'), isNull);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Total: 1,234.50'), findsOneWidget);
+    });
+
+    testWidgets('the chosen locale is used after a restart', (tester) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri, 'locale': 'de'});
+      await pumpApp(tester, FakeStorage({uri: '# L\n- [x] A 1234.50\n'}));
+      expect(find.text('Total: 1.234,50'), findsOneWidget);
+    });
+
+    testWidgets('Change file opens another file and returns home', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri});
+      const other = 'content://other.md';
+      final storage = FakeStorage({
+        uri: '# L\n- [ ] Milk\n',
+        other: '# Work\n- [ ] Report\n',
+      })..nextOpen = other;
+      await pumpApp(tester, storage);
+
+      // An unsaved edit to the old file is written before switching.
+      await tester.tap(find.byIcon(Icons.check_box_outline_blank));
+      await tester.pump();
+      await openSettings(tester);
+      await tester.tap(find.text('Change file'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open existing file'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SettingsPage), findsNothing);
+      expect(itemField('Report'), findsOneWidget);
+      expect(storage.files[uri], '# L\n- [x] Milk\n');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('fileUri'), other);
+    });
+
+    testWidgets('a cancelled Change file stays in Settings', (tester) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri});
+      await pumpApp(tester, FakeStorage({uri: '# L\n- [ ] Milk\n'}));
+      await openSettings(tester);
+      await tester.tap(find.text('Change file'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create new file'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsPage), findsOneWidget);
+    });
+
+    testWidgets('a file that cannot be opened keeps the current one', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri});
+      final storage = FakeStorage({uri: '# L\n- [ ] Milk\n'})
+        ..nextOpen = 'content://gone.md';
+      await pumpApp(tester, storage);
+      await openSettings(tester);
+      await tester.tap(find.text('Change file'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open existing file'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(
+        find.textContaining('Access to the file was lost'),
+        findsOneWidget,
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(itemField('Milk'), findsOneWidget);
+    });
   });
 }
 

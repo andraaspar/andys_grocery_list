@@ -26,9 +26,17 @@ const itemRowHeight = 48.0;
 /// The main screen: one scrolling list of list headers, item rows and total
 /// lines, followed by blank space.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.document, this.scrollMemory});
+  const HomePage({
+    super.key,
+    required this.document,
+    this.scrollMemory,
+    this.onOpenSettings,
+  });
 
   final DocumentController document;
+
+  /// Opens Settings from the overflow menu. Null: there is no menu.
+  final VoidCallback? onOpenSettings;
 
   /// Where the scroll position is remembered. Null: it is not.
   final ScrollMemory? scrollMemory;
@@ -463,7 +471,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   AppBar _buildAppBar() {
-    if (!_selection.active) return AppBar(title: Text(appName()));
+    if (!_selection.active) {
+      final openSettings = widget.onOpenSettings;
+      return AppBar(
+        title: Text(appName()),
+        actions: [
+          if (openSettings != null)
+            PopupMenuButton<void>(
+              tooltip: 'More',
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  onTap: openSettings,
+                  child: const Text('Settings'),
+                ),
+              ],
+            ),
+        ],
+      );
+    }
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.close),

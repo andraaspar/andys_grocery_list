@@ -93,6 +93,17 @@ class DocumentController extends ChangeNotifier {
 
   NumberContext numberContext;
 
+  /// Switches the locale used to read numbers and format totals (plan §7).
+  /// Totals are recalculated; the file is not touched.
+  void setLocale(String? locale) {
+    if (locale == this.locale) return;
+    this.locale = locale;
+    numberContext = locale == null
+        ? NumberContext.en
+        : NumberContext.forLocale(locale);
+    notifyListeners();
+  }
+
   /// Where focus should go after the last operation. The UI consumes it with
   /// [takeCursor].
   ops.CursorTarget? _pendingCursor;
