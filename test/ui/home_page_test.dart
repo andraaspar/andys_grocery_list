@@ -6,6 +6,8 @@ import 'package:andys_grocery_list/ui/home_page.dart';
 import 'package:andys_grocery_list/ui/item_row.dart';
 import 'package:andys_grocery_list/ui/list_header.dart';
 import 'package:andys_grocery_list/ui/sentinel_controller.dart';
+import 'package:andys_grocery_list/ui/theme.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -193,6 +195,33 @@ void main() {
     await tester.tap(find.text('How to use'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Paste several lines'), findsOneWidget);
+  });
+
+  testWidgets('expanding the help does not scroll', (tester) async {
+    final md = StringBuffer('# L\n');
+    for (var i = 0; i < 16; i++) {
+      md.write('- [ ] item $i\n');
+    }
+    await pump(tester, md.toString());
+    await tester.dragUntilVisible(
+      find.text('How to use'),
+      find.byType(Scrollable).first,
+      const Offset(0, -100),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('How to use'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Paste several lines'), findsNothing);
+    final scrollable = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    final before = scrollable.position.pixels;
+    await tester.tap(find.text('How to use'));
+    // Long enough for any delayed scroll to have started and finished.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Paste several lines'), findsOneWidget);
+    expect(scrollable.position.pixels, before);
   });
 
   testWidgets('Enter in a list name focuses the first item', (tester) async {
@@ -561,6 +590,138 @@ void main() {
   });
 
   group('selection mode', selectionTests);
+  group('reorder mode', reorderTests);
+}
+
+void reorderTests() {
+  Future<void> enterReorder(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Reorder'));
+    await tester.pumpAndSettle();
+  }
+
+  /// The drag handle in the row of the item or list name [text].
+  Finder handleOf(String text, {bool list = false}) {
+    final row = find.ancestor(
+      of: list ? nameField(text) : itemField(text),
+      matching: find.byWidgetPredicate((w) => w is ItemRow || w is ListHeader),
+    );
+    return find.descendant(of: row, matching: find.byIcon(Icons.drag_handle));
+  }
+
+  /// Drags the handle of [from] to [dy] pixels from the vertical centre of
+  /// the row [to].
+  Future<void> drag(
+    WidgetTester tester,
+    Finder from,
+    Finder to, {
+    double dy = 0,
+  }) async {
+    final start = tester.getCenter(from);
+    final end = tester.getCenter(to) + Offset(0, dy);
+    final g = await tester.startGesture(start);
+    await g.moveBy(const Offset(0, 20));
+    await tester.pump();
+    await g.moveTo(Offset(start.dx, end.dy));
+    await tester.pump();
+    await g.up();
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('replaces + and ⋯ with handles, and Done leaves it', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] a\n- [ ] b\n');
+    await focusItem(tester, 'a', 0);
+    await enterReorder(tester);
+    expect(find.text('Drag to reorder'), findsOneWidget);
+    expect(rowIcon(Icons.add), findsNothing);
+    expect(rowIcon(Icons.more_horiz), findsNothing);
+    expect(rowIcon(Icons.drag_handle), findsNWidgets(3));
+    expect(hasFocus(tester, itemField('a')), isFalse);
+    expect(fieldOf(tester, itemField('a')).readOnly, isTrue);
+
+    await tester.tap(find.byTooltip('Done'));
+    await tester.pumpAndSettle();
+    expect(rowIcon(Icons.add), findsNWidgets(2));
+    expect(rowIcon(Icons.drag_handle), findsNothing);
+  });
+
+  testWidgets('the back button leaves it', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await enterReorder(tester);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Drag to reorder'), findsNothing);
+    expect(find.byType(HomePage), findsOneWidget);
+  });
+
+  testWidgets('drags an item below another', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n- [ ] b\n- [ ] c\n');
+    await enterReorder(tester);
+    await drag(tester, handleOf('a'), itemField('b'), dy: 6);
+    expect(serialized(doc), '# L\n- [ ] b\n- [ ] a\n- [ ] c\n');
+  });
+
+  testWidgets('drags an item into another list', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n- [ ] b\n# M\n- [ ] c\n');
+    await enterReorder(tester);
+    await drag(tester, handleOf('c'), itemField('a'), dy: -6);
+    expect(serialized(doc), '# L\n- [ ] c\n- [ ] a\n- [ ] b\n\n# M\n- [ ] \n');
+  });
+
+  testWidgets('drags an item to the top of a list by its name', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n# M\n- [ ] b\n- [ ] c\n');
+    await enterReorder(tester);
+    await drag(tester, handleOf('a'), nameField('M'));
+    expect(serialized(doc), '# L\n- [ ] \n\n# M\n- [ ] a\n- [ ] b\n- [ ] c\n');
+  });
+
+  testWidgets('drags a list before and after another', (tester) async {
+    final doc = await pump(
+      tester,
+      '# L\n- [ ] a\n\n# M\n- [ ] b\n\n# N\n- [ ] c\n',
+    );
+    await enterReorder(tester);
+    await drag(tester, handleOf('N', list: true), nameField('L'));
+    expect(serialized(doc), '# N\n- [ ] c\n\n# L\n- [ ] a\n\n# M\n- [ ] b\n');
+    await drag(tester, handleOf('N', list: true), itemField('b'));
+    expect(serialized(doc), '# L\n- [ ] a\n\n# M\n- [ ] b\n\n# N\n- [ ] c\n');
+  });
+
+  testWidgets('long-pressing a row drags it', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n- [ ] b\n');
+    await enterReorder(tester);
+    final start = tester.getCenter(itemField('a'));
+    final g = await tester.startGesture(start);
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+    await g.moveTo(tester.getCenter(itemField('b')) + const Offset(0, 6));
+    await tester.pump();
+    await g.up();
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [ ] b\n- [ ] a\n');
+  });
+
+  testWidgets('dragging to the bottom edge scrolls', (tester) async {
+    final md = StringBuffer('# L\n');
+    for (var i = 0; i < 60; i++) {
+      md.write('- [ ] item $i\n');
+    }
+    final doc = await pump(tester, md.toString());
+    await enterReorder(tester);
+    final g = await tester.startGesture(tester.getCenter(handleOf('item 0')));
+    await g.moveBy(const Offset(0, 20));
+    await tester.pump();
+    final bottom = tester.getBottomLeft(find.byType(HomePage)).dy - 5;
+    await g.moveTo(Offset(tester.getCenter(handleOf('item 1')).dx, bottom));
+    for (var i = 0; i < 300; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await g.up();
+    await tester.pumpAndSettle();
+    final items = doc.doc.lists.single.items;
+    expect(items.first.text, 'item 1');
+    expect(items.indexWhere((i) => i.text == 'item 0'), greaterThan(30));
+  });
 }
 
 /// Captures text written to the clipboard. Read the latest value with the
@@ -633,6 +794,76 @@ void selectionTests() {
 
     await tapRow(tester, 'b');
     expect(find.text('2 selected'), findsOneWidget);
+  });
+
+  testWidgets('long-pressing + enters selection mode', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n- [ ] b\n');
+    final row = find.ancestor(of: itemField('a'), matching: find.byType(Row));
+    await tester.longPress(
+      find.descendant(of: row.first, matching: find.byIcon(Icons.add)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+    expect(serialized(doc), '# L\n- [ ] a\n- [ ] b\n');
+  });
+
+  testWidgets('check marks replace + without rewrapping, and toggle', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] a\n- [ ] b\n');
+    final width = tester.getSize(itemField('a')).width;
+    await longPressIcon(tester, 'a');
+    expect(tester.getSize(itemField('a')).width, width);
+    expect(rowIcon(Icons.check_circle), findsOneWidget);
+    expect(rowIcon(Icons.radio_button_unchecked), findsOneWidget);
+
+    await tester.tap(rowIcon(Icons.radio_button_unchecked));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+    expect(rowIcon(Icons.check_circle), findsNWidgets(2));
+  });
+
+  testWidgets('state icons and + line up 16 px from the edges, with names', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    final width = tester.getSize(find.byType(HomePage)).width;
+    final box = tester.getRect(rowIcon(Icons.check_box_outline_blank));
+    final plus = tester.getRect(rowIcon(Icons.add));
+    final menu = tester.getRect(rowIcon(Icons.more_horiz));
+    expect(box.left, 16);
+    expect(tester.getRect(nameField('L')).left, 16);
+    expect(plus.right, width - 16);
+    expect(menu.right, width - 16);
+  });
+
+  testWidgets('the last app bar icon is 16 px from the edge', (tester) async {
+    final doc = DocumentController(parseDocument('# L\n- [ ] a\n'));
+    addTearDown(doc.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: HomePage(document: doc, onOpenSettings: () {}),
+      ),
+    );
+    final width = tester.getSize(find.byType(HomePage)).width;
+    final cog = find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byIcon(Icons.settings_outlined),
+    );
+    expect(tester.getRect(cog).right, width - 16);
+  });
+
+  testWidgets('the unnamed list placeholder is greyed', (tester) async {
+    await pump(tester, '- [ ] a\n');
+    final context = tester.element(find.byType(HomePage));
+    final field = tester.widget<TextField>(
+      find.descendant(
+        of: find.byType(ListHeader),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(field.decoration!.hintStyle!.color, Theme.of(context).hintColor);
   });
 
   testWidgets('deselecting the last item leaves selection mode', (

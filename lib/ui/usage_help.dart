@@ -26,19 +26,6 @@ class _UsageHelpState extends State<UsageHelp> {
   void _toggle() {
     setState(() => _expanded = !_expanded);
     widget.onExpandedChanged?.call(_expanded);
-    if (_expanded) {
-      // The tips open below the button, at the end of the page: bring them
-      // into view once they have grown.
-      Future.delayed(_duration, () {
-        if (!mounted) return;
-        Scrollable.ensureVisible(
-          context,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
-        );
-      });
-    }
   }
 
   static const _duration = Duration(milliseconds: 200);
@@ -86,7 +73,9 @@ class _UsageHelpState extends State<UsageHelp> {
                 stateIcon(ItemState.done, states.done),
                 const TextSpan(text: ' done → '),
                 stateIcon(ItemState.failed, states.failed),
-                const TextSpan(text: ' failed. Long-press it to select items.'),
+                const TextSpan(
+                  text: ' failed. Long-press it or + to select items.',
+                ),
               ],
             ),
           ),
@@ -106,7 +95,7 @@ class _UsageHelpState extends State<UsageHelp> {
                   'above, or the list to the list above.',
             ),
           ),
-          tip(Icons.add, const TextSpan(text: '+ counts up: Milk → 2x Milk.')),
+          tip(Icons.add, const TextSpan(text: 'Counts up: Milk → 2x Milk.')),
           tip(
             Icons.sell_outlined,
             const TextSpan(
@@ -119,6 +108,14 @@ class _UsageHelpState extends State<UsageHelp> {
             Icons.content_paste,
             const TextSpan(
               text: 'Paste several lines to add many items at once.',
+            ),
+          ),
+          tip(
+            Icons.swap_vert,
+            const TextSpan(
+              text:
+                  'Tap ⇅ at the top to move items and lists: drag the ≡ '
+                  'handle, or long-press a row.',
             ),
           ),
           tip(

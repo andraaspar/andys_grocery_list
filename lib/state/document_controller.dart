@@ -323,6 +323,16 @@ class DocumentController extends ChangeNotifier {
     return _undoable(() => _apply(ops.deleteList(_doc, listId)));
   }
 
+  /// Reorder mode: moves an item in front of the item at [toIndex] in list
+  /// [toListId] (its length: to the end).
+  void moveItem(String itemId, String toListId, int toIndex) =>
+      _apply(ops.moveItem(_doc, itemId, toListId, toIndex));
+
+  /// Reorder mode: moves a list in front of the list at [toIndex] (the
+  /// number of lists: to the end).
+  void moveList(String listId, int toIndex) =>
+      _apply(ops.moveList(_doc, listId, toIndex));
+
   UndoToken? _undoable(void Function() op) {
     final before = _doc;
     op();

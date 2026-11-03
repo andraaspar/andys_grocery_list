@@ -228,4 +228,63 @@ void main() {
       '# A\n- [x] FAILED b\n- [ ] c2\n',
     );
   });
+
+  group('moveItem', () {
+    test('moves down within a list', () {
+      final d = doc('# A\n- [ ] a\n- [ ] b\n- [ ] c\n');
+      final r = moveItem(d, idAt(d, 0, 0), d.lists[0].id, 2);
+      expect(md(r.doc), '# A\n- [ ] b\n- [ ] a\n- [ ] c\n');
+    });
+
+    test('moves up within a list', () {
+      final d = doc('# A\n- [ ] a\n- [ ] b\n- [ ] c\n');
+      final r = moveItem(d, idAt(d, 0, 2), d.lists[0].id, 0);
+      expect(md(r.doc), '# A\n- [ ] c\n- [ ] a\n- [ ] b\n');
+    });
+
+    test('in front of or behind itself changes nothing', () {
+      final d = doc('# A\n- [ ] a\n- [ ] b\n');
+      expect(moveItem(d, idAt(d, 0, 0), d.lists[0].id, 0).doc, same(d));
+      expect(moveItem(d, idAt(d, 0, 0), d.lists[0].id, 1).doc, same(d));
+    });
+
+    test('moves to another list, keeping its state', () {
+      final d = doc('# A\n- [x] a\n- [ ] b\n# B\n- [ ] c\n');
+      final r = moveItem(d, idAt(d, 0, 0), d.lists[1].id, 1);
+      expect(md(r.doc), '# A\n- [ ] b\n\n# B\n- [ ] c\n- [x] a\n');
+    });
+
+    test('a list left empty gets an empty item', () {
+      final d = doc('# A\n- [ ] a\n# B\n- [ ] c\n');
+      final r = moveItem(d, idAt(d, 0, 0), d.lists[1].id, 0);
+      expect(md(r.doc), '# A\n- [ ] \n\n# B\n- [ ] a\n- [ ] c\n');
+      expectInvariants(r.doc);
+    });
+
+    test("replaces the target list's only empty item", () {
+      final d = doc('# A\n- [ ] a\n- [ ] b\n# B\n- [ ] \n');
+      final r = moveItem(d, idAt(d, 0, 0), d.lists[1].id, 1);
+      expect(md(r.doc), '# A\n- [ ] b\n\n# B\n- [ ] a\n');
+    });
+  });
+
+  group('moveList', () {
+    test('moves a list down and up', () {
+      final d = doc('# A\n- [ ] a\n# B\n- [ ] b\n# C\n- [ ] c\n');
+      expect(
+        md(moveList(d, d.lists[0].id, 3).doc),
+        '# B\n- [ ] b\n\n# C\n- [ ] c\n\n# A\n- [ ] a\n',
+      );
+      expect(
+        md(moveList(d, d.lists[2].id, 1).doc),
+        '# A\n- [ ] a\n\n# C\n- [ ] c\n\n# B\n- [ ] b\n',
+      );
+    });
+
+    test('in front of or behind itself changes nothing', () {
+      final d = doc('# A\n- [ ] a\n# B\n- [ ] b\n');
+      expect(moveList(d, d.lists[0].id, 0).doc, same(d));
+      expect(moveList(d, d.lists[0].id, 1).doc, same(d));
+    });
+  });
 }

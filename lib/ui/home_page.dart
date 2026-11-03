@@ -19,6 +19,7 @@ import 'list_header.dart';
 import 'scroll_memory.dart';
 import 'sentinel_controller.dart';
 import 'snackbars.dart';
+import 'theme.dart';
 import 'usage_help.dart';
 
 /// How much room is kept between the focused row and the edges of the
@@ -35,7 +36,15 @@ class HomePage extends StatefulWidget {
     this.onOpenSettings,
     this.helpExpanded = true,
     this.onHelpExpandedChanged,
+    this.title,
+    this.onTapTitle,
   });
+
+  /// Tapping the title opens the file switcher. Null: it can't be tapped.
+  final VoidCallback? onTapTitle;
+
+  /// The open file's name. Null: the app name is shown.
+  final String? title;
 
   /// Whether the usage help starts expanded, and where its changes go.
   final bool helpExpanded;
@@ -90,6 +99,16 @@ class _ItemField {
   final FocusNode focusNode;
 }
 
+/// What is being dragged in reorder mode: an item or a whole list.
+typedef _Drag = ({String id, bool isList});
+
+/// Where a drag would drop, and where its indicator line is drawn: on the
+/// top or bottom edge of row [rowKey].
+///
+/// For an item, in front of item [index] of list [listId]. For a list, in
+/// front of list [index].
+typedef _Drop = ({String? listId, int index, String rowKey, bool below});
+
 class _NameField {
   _NameField(this.controller, this.focusNode);
   final TextEditingController controller;
@@ -102,6 +121,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final _listController = ListController();
   final _scrollController = ScrollController();
   final _selection = SelectionController();
+  final _viewportKey = GlobalKey();
+
+  // Reorder mode (plan §6a).
+  bool _reordering = false;
+  _Drag? _drag;
+  _Drop? _drop;
+  Offset? _pointer;
+  Timer? _autoScrollTimer;
 
   List<_Row> _rows = const [];
   Map<String, int> _rowIndex = const {};
@@ -138,6 +165,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _anchorSaveTimer?.cancel();
     _revealTimer?.cancel();
+    _autoScrollTimer?.cancel();
     _saveAnchor();
     if (_document.onReloadedBeforeSave == _onReloadedBeforeSave) {
       _document.onReloadedBeforeSave = null;
@@ -554,11 +582,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   AppBar _buildAppBar() {
-    if (!_selection.active) {
+    if (!_selection.active && !_reordering) {
       final openSettings = widget.onOpenSettings;
       return AppBar(
-        title: Text(appName()),
+        title: _buildTitle(),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.swap_vert),
+            tooltip: 'Reorder',
+            onPressed: _enterReorder,
+          ),
           if (openSettings != null)
             IconButton(
               icon: const Icon(Icons.settings_outlined),
@@ -568,8 +601,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ],
       );
     }
-    // A contextual bar, coloured so selection mode is easy to tell apart.
+    // Contextual bars, coloured so the modes are easy to tell apart.
     final scheme = Theme.of(context).colorScheme;
+    if (_reordering) {
+      return AppBar(
+        backgroundColor: scheme.inverseSurface,
+        foregroundColor: scheme.onInverseSurface,
+        leading: IconButton(
+          icon: const Icon(Icons.check),
+          tooltip: 'Done',
+          onPressed: _leaveReorder,
+        ),
+        title: const Text('Drag to reorder'),
+      );
+    }
     return AppBar(
       backgroundColor: scheme.inverseSurface,
       foregroundColor: scheme.onInverseSurface,
@@ -594,6 +639,361 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  /// The file name, with a ▾ when it opens the file switcher.
+  Widget _buildTitle() {
+    final text = Text(
+      widget.title ?? appName(),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+    final onTap = widget.onTapTitle;
+    if (onTap == null) return text;
+    return Tooltip(
+      message: 'Switch file',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: text),
+              const Icon(Icons.arrow_drop_down),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Reorder mode (plan §6a)
+  //
+  // The rows are dragged with [Draggable]s, which only start the drag and
+  // show the floating row. The pointer is followed by a [Listener] around
+  // the whole list instead, as a [Draggable] stops reporting once its row
+  // is scrolled away and unmounted.
+
+  void _enterReorder() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _selection.clear();
+    setState(() => _reordering = true);
+  }
+
+  void _leaveReorder() {
+    _cancelDrag();
+    setState(() => _reordering = false);
+  }
+
+  /// How close to the top or bottom edge the pointer must be to scroll, and
+  /// the fastest speed, in pixels per tick.
+  static const _autoScrollEdge = 56.0;
+  static const _autoScrollSpeed = 16.0;
+  static const _autoScrollTick = Duration(milliseconds: 16);
+
+  void _startDrag(_Drag drag) {
+    if (_drag != null) return;
+    setState(() {
+      _drag = drag;
+      _drop = null;
+    });
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = Timer.periodic(_autoScrollTick, (_) => _autoScroll());
+  }
+
+  void _onPointer(PointerEvent event) {
+    _pointer = event.position;
+    if (_drag != null) _updateDrop();
+  }
+
+  void _onPointerUp(PointerEvent event) {
+    final drag = _drag;
+    if (drag == null) return;
+    _pointer = event.position;
+    _updateDrop();
+    final drop = _drop;
+    _cancelDrag();
+    if (drop == null) return;
+    if (drag.isList) {
+      _document.moveList(drag.id, drop.index);
+    } else if (drop.listId case final listId?) {
+      _document.moveItem(drag.id, listId, drop.index);
+    }
+  }
+
+  void _cancelDrag() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+    if (_drag == null) return;
+    setState(() {
+      _drag = null;
+      _drop = null;
+    });
+  }
+
+  RenderBox? get _viewportBox {
+    final ro = _viewportKey.currentContext?.findRenderObject();
+    return ro is RenderBox && ro.attached && ro.hasSize ? ro : null;
+  }
+
+  void _autoScroll() {
+    final pointer = _pointer;
+    final box = _viewportBox;
+    if (pointer == null || box == null || !_scrollController.hasClients) {
+      return;
+    }
+    final y = box.globalToLocal(pointer).dy;
+    final height = box.size.height;
+    final double delta;
+    if (y < _autoScrollEdge) {
+      delta = -_autoScrollSpeed * ((_autoScrollEdge - y) / _autoScrollEdge);
+    } else if (y > height - _autoScrollEdge) {
+      delta =
+          _autoScrollSpeed *
+          ((y - (height - _autoScrollEdge)) / _autoScrollEdge);
+    } else {
+      return;
+    }
+    final p = _scrollController.position;
+    final target = (p.pixels + delta.clamp(-_autoScrollSpeed, _autoScrollSpeed))
+        .clamp(p.minScrollExtent, p.maxScrollExtent);
+    if (target == p.pixels) return;
+    _scrollController.jumpTo(target);
+    // The rows moved under the pointer once they are laid out again.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _drag != null) _updateDrop();
+    });
+  }
+
+  void _updateDrop() {
+    final drop = _dropAtPointer();
+    if (drop != _drop) setState(() => _drop = drop);
+  }
+
+  /// The drop under the pointer, or null if dropping there changes nothing.
+  /// Above or below the list, the closest row is used.
+  _Drop? _dropAtPointer() {
+    final drag = _drag;
+    final pointer = _pointer;
+    final viewport = _viewportBox;
+    if (drag == null || pointer == null || viewport == null) return null;
+    final local = viewport.globalToLocal(pointer);
+    final y = local.dy.clamp(0.0, viewport.size.height - 1);
+    final at = viewport.localToGlobal(Offset(local.dx, y));
+    for (final MapEntry(:key, :value) in _rowContexts.entries) {
+      final ro = value.findRenderObject();
+      if (ro is! RenderBox || !ro.attached || !ro.hasSize) continue;
+      final rowY = ro.globalToLocal(at).dy;
+      if (rowY < 0 || rowY >= ro.size.height) continue;
+      final index = _rowIndex[key];
+      if (index == null) return null;
+      final drop = _dropOnRow(drag, _rows[index], rowY >= ro.size.height / 2);
+      return drop != null && _changes(drag, drop) ? drop : null;
+    }
+    return _drop;
+  }
+
+  /// An item drops between items, at the top of a list (on its name) or at
+  /// its end (on its total or the help). A list drops before a list (on its
+  /// name) or after it (on its items or total).
+  _Drop? _dropOnRow(_Drag drag, _Row row, bool lowerHalf) {
+    final lists = _document.doc.lists;
+    switch (row) {
+      case _HeaderRow(:final list, :final pos):
+        return drag.isList
+            ? (listId: null, index: pos.list, rowKey: row.key, below: false)
+            : (listId: list.id, index: 0, rowKey: row.key, below: true);
+      case _ItemRow(:final list, :final pos):
+        if (drag.isList) return _afterList(pos.list);
+        return (
+          listId: list.id,
+          index: pos.item + (lowerHalf ? 1 : 0),
+          rowKey: row.key,
+          below: lowerHalf,
+        );
+      case _FooterRow(:final list, :final pos):
+        if (drag.isList) return _afterList(pos.list);
+        return (
+          listId: list.id,
+          index: list.items.length,
+          rowKey: row.key,
+          below: false,
+        );
+      case _HelpRow():
+        if (lists.isEmpty) return null;
+        return drag.isList
+            ? (listId: null, index: lists.length, rowKey: row.key, below: false)
+            : (
+                listId: lists.last.id,
+                index: lists.last.items.length,
+                rowKey: row.key,
+                below: false,
+              );
+    }
+  }
+
+  /// After list [l]: the indicator is under its last row.
+  _Drop? _afterList(int l) {
+    final lists = _document.doc.lists;
+    if (l >= lists.length) return null;
+    final next = l + 1 < lists.length ? _listKey(lists[l + 1].id) : 'help';
+    final nextIndex = _rowIndex[next];
+    if (nextIndex == null || nextIndex == 0) return null;
+    return (
+      listId: null,
+      index: l + 1,
+      rowKey: _rows[nextIndex - 1].key,
+      below: true,
+    );
+  }
+
+  /// Whether dropping [drag] at [drop] moves anything.
+  bool _changes(_Drag drag, _Drop drop) {
+    final doc = _document.doc;
+    if (drag.isList) {
+      final from = doc.listIndexOf(drag.id);
+      return from >= 0 && drop.index != from && drop.index != from + 1;
+    }
+    final from = doc.locate(drag.id);
+    if (from == null) return false;
+    if (doc.lists[from.listIndex].id != drop.listId) return true;
+    return drop.index != from.itemIndex && drop.index != from.itemIndex + 1;
+  }
+
+  /// Whether [row] is, or belongs to, what is being dragged.
+  bool _isDragged(_Row row) {
+    final drag = _drag;
+    if (drag == null) return false;
+    if (!drag.isList) return row.key == drag.id;
+    return switch (row) {
+      _HeaderRow(:final list) ||
+      _ItemRow(:final list) ||
+      _FooterRow(:final list) => list.id == drag.id,
+      _HelpRow() => false,
+    };
+  }
+
+  /// The handle shown in place of + and ⋯, and the long press on the whole
+  /// row, both of which start dragging [drag].
+  ({Widget handle, Widget Function(Widget row) wrap}) _dragControls(
+    _Row row,
+    _Drag drag,
+  ) {
+    final feedback = Builder(
+      builder: (context) => _DragFeedback(
+        width: MediaQuery.sizeOf(context).width,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: ItemRow.edgePadding),
+          child: _feedbackContent(row),
+        ),
+      ),
+    );
+    // Keeps the floating row where the row was, under the finger.
+    Offset anchor(Draggable<Object> d, BuildContext context, Offset position) {
+      final ro = _rowContexts[row.key]?.findRenderObject();
+      return ro is RenderBox ? ro.globalToLocal(position) : Offset.zero;
+    }
+
+    final handle = Draggable<_Drag>(
+      data: drag,
+      feedback: feedback,
+      dragAnchorStrategy: anchor,
+      onDragStarted: () => _startDrag(drag),
+      child: SizedBox(
+        // The size of the + button and the ⋯ menu.
+        width: 40,
+        height: 32,
+        child: Icon(
+          Icons.drag_handle,
+          semanticLabel: drag.isList ? 'Move list' : 'Move item',
+        ),
+      ),
+    );
+    Widget wrap(Widget child) => LongPressDraggable<_Drag>(
+      data: drag,
+      feedback: feedback,
+      dragAnchorStrategy: anchor,
+      onDragStarted: () => _startDrag(drag),
+      child: child,
+    );
+    return (handle: handle, wrap: wrap);
+  }
+
+  Widget _feedbackContent(_Row row) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.bodyLarge!;
+    switch (row) {
+      case _ItemRow(:final item):
+        final states = StateColors.of(context);
+        return Row(
+          children: [
+            SizedBox(
+              width: 40,
+              height: 32,
+              child: IconTheme.merge(
+                data: IconThemeData(
+                  color: switch (item.state) {
+                    ItemState.newItem => null,
+                    ItemState.done => states.done,
+                    ItemState.failed => states.failed,
+                  },
+                ),
+                child: ItemRow.iconFor(item.state),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                item.text.isEmpty ? ItemRow.placeholder : item.text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: item.text.isEmpty
+                    ? base.copyWith(color: theme.hintColor)
+                    : base,
+              ),
+            ),
+            const SizedBox(
+              width: 40,
+              height: 32,
+              child: Icon(Icons.drag_handle),
+            ),
+          ],
+        );
+      case _HeaderRow(:final list):
+        return Padding(
+          padding: const EdgeInsets.only(left: 16 - ItemRow.edgePadding),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  list.name.isEmpty ? ListHeader.placeholder : list.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: base.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: list.name.isEmpty ? theme.hintColor : null,
+                  ),
+                ),
+              ),
+              Text(
+                _countItems(list.items.length),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(
+                width: 40,
+                height: 32,
+                child: Icon(Icons.drag_handle),
+              ),
+            ],
+          ),
+        );
+      case _FooterRow() || _HelpRow():
+        return const SizedBox.shrink();
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Build
 
@@ -601,9 +1001,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return PopScope(
       // Back leaves selection mode instead of the app.
-      canPop: !_selection.active,
+      // Back leaves reorder mode too.
+      canPop: !_selection.active && !_reordering,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _selection.clear();
+        if (didPop) return;
+        if (_reordering) {
+          _leaveReorder();
+        } else {
+          _selection.clear();
+        }
       },
       child: Scaffold(
         appBar: _buildAppBar(),
@@ -612,22 +1018,46 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _scheduleAnchorSave();
             return false;
           },
-          child: SuperListView.builder(
-            listController: _listController,
-            controller: _scrollController,
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-            itemCount: _rows.length,
-            findChildIndexCallback: (key) =>
-                key is ValueKey<String> ? _rowIndex[key.value] : null,
-            itemBuilder: (context, index) {
-              final row = _rows[index];
-              return _TrackedRow(
-                key: ValueKey(row.key),
-                rowKey: row.key,
-                contexts: _rowContexts,
-                child: _buildRow(row),
-              );
-            },
+          child: Listener(
+            onPointerDown: _onPointer,
+            onPointerMove: _onPointer,
+            onPointerUp: _onPointerUp,
+            onPointerCancel: (_) => _cancelDrag(),
+            child: SuperListView.builder(
+              key: _viewportKey,
+              listController: _listController,
+              controller: _scrollController,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+              itemCount: _rows.length,
+              findChildIndexCallback: (key) =>
+                  key is ValueKey<String> ? _rowIndex[key.value] : null,
+              itemBuilder: (context, index) {
+                final row = _rows[index];
+                final drop = _drop;
+                final scheme = Theme.of(context).colorScheme;
+                final line = BorderSide(color: scheme.primary, width: 3);
+                return _TrackedRow(
+                  key: ValueKey(row.key),
+                  rowKey: row.key,
+                  contexts: _rowContexts,
+                  // Always wrapped, so a drag never rebuilds the row's fields.
+                  child: DecoratedBox(
+                    position: DecorationPosition.foreground,
+                    decoration: drop == null || drop.rowKey != row.key
+                        ? const BoxDecoration()
+                        : BoxDecoration(
+                            border: drop.below
+                                ? Border(bottom: line)
+                                : Border(top: line),
+                          ),
+                    child: Opacity(
+                      opacity: _isDragged(row) ? 0.4 : 1,
+                      child: _buildRow(row),
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -638,29 +1068,39 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     switch (row) {
       case _HeaderRow(:final list):
         final f = _names[list.id]!;
-        return ListHeader(
+        final drag = _reordering
+            ? _dragControls(row, (id: list.id, isList: true))
+            : null;
+        final header = ListHeader(
           controller: f.controller,
           focusNode: f.focusNode,
           onChanged: (name) => _document.renameList(list.id, name),
           onSubmitted: () => _focusFirstItem(list),
           onAction: (action) => _onListAction(list, action),
+          dragHandle: drag?.handle,
         );
+        return drag?.wrap(header) ?? header;
       case _ItemRow(:final item):
         final f = _items[item.id]!;
         final selecting = _selection.active;
-        return ItemRow(
+        final drag = _reordering
+            ? _dragControls(row, (id: item.id, isList: false))
+            : null;
+        final itemRow = ItemRow(
           item: item,
           controller: f.controller,
           focusNode: f.focusNode,
           onCycleState: () => _document.cycleState(item.id),
-          onIncrement: selecting
+          onIncrement: selecting || _reordering
               ? null
               : () => _document.incrementQuantity(item.id),
-          onLongPressIcon: () => _enterSelection(item.id),
+          onLongPressIcon: _reordering ? null : () => _enterSelection(item.id),
           selectionMode: selecting,
           selected: _selection.contains(item.id),
           onToggleSelection: () => _selection.toggle(item.id),
+          dragHandle: drag?.handle,
         );
+        return drag?.wrap(itemRow) ?? itemRow;
       case _FooterRow(:final total):
         return ListFooter(total: total);
       case _HelpRow():
@@ -719,6 +1159,24 @@ class _TrackedRowState extends State<_TrackedRow> {
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// The row floating under the finger while it is dragged.
+class _DragFeedback extends StatelessWidget {
+  const _DragFeedback({required this.width, required this.child});
+
+  final double width;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 6,
+      color: scheme.surfaceContainerHigh,
+      child: SizedBox(width: width, child: child),
+    );
+  }
 }
 
 String _countItems(int n) => '$n ${n == 1 ? 'item' : 'items'}';

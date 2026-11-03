@@ -18,6 +18,7 @@ class ItemRow extends StatelessWidget {
     this.selectionMode = false,
     this.selected = false,
     this.onToggleSelection,
+    this.dragHandle,
   });
 
   final TodoItem item;
@@ -25,10 +26,11 @@ class ItemRow extends StatelessWidget {
   final FocusNode focusNode;
   final VoidCallback onCycleState;
 
-  /// The + button. Hidden when null (selection mode, §6).
+  /// The + button. Hidden when null (reorder mode).
   final VoidCallback? onIncrement;
 
-  /// Long-pressing the state icon enters selection mode (§6).
+  /// Long-pressing the state icon or the + button enters selection mode
+  /// (§6).
   final VoidCallback? onLongPressIcon;
 
   /// In selection mode the text can't be edited, and tapping the icon or the
@@ -37,10 +39,21 @@ class ItemRow extends StatelessWidget {
   final bool selected;
   final VoidCallback? onToggleSelection;
 
+  /// In reorder mode, shown in place of the + button; the text can't be
+  /// edited.
+  final Widget? dragHandle;
+
+  bool get _locked => selectionMode || dragHandle != null;
+
   /// The tightest vertical density makes the row 32 px high: one 24 px text
   /// line with [textPadding] above and below.
   static const rowDensity = VisualDensity(horizontal: -2, vertical: -4);
   static const textPadding = 4.0;
+
+  /// Space at both ends of a row. The icon buttons are 8 px wider than their
+  /// icons on each side, so with this the icons are 16 px from the screen
+  /// edges, in line with the list names and the app title.
+  static const edgePadding = 8.0;
 
   /// Shown in an empty item.
   static const placeholder = 'Something';
@@ -86,18 +99,22 @@ class ItemRow extends StatelessWidget {
             padding: EdgeInsets.only(
               top: textPadding,
               bottom: textPadding,
-              right: onIncrement == null ? 16 : 0,
+              // Selection mode puts a check mark in the place of +, so the
+              // text keeps its width and doesn't rewrap.
+              right: onIncrement == null && dragHandle == null && !selectionMode
+                  ? 8
+                  : 0,
             ),
-            // Always wrapped, so toggling selection mode keeps the field's
-            // state.
+            // Always wrapped, so toggling selection or reorder mode keeps the
+            // field's state.
             child: IgnorePointer(
-              ignoring: selectionMode,
+              ignoring: _locked,
               child: Stack(
                 children: [
                   TextField(
                     controller: controller,
                     focusNode: focusNode,
-                    readOnly: selectionMode,
+                    readOnly: _locked,
                     keyboardType: TextInputType.multiline,
                     textInputAction: TextInputAction.newline,
                     maxLines: null,
@@ -122,12 +139,25 @@ class ItemRow extends StatelessWidget {
             ),
           ),
         ),
-        if (onIncrement != null)
+        if (dragHandle case final handle?)
+          handle
+        else if (selectionMode)
+          IconButton(
+            visualDensity: rowDensity,
+            icon: Icon(
+              selected ? Icons.check_circle : Icons.radio_button_unchecked,
+            ),
+            color: selected ? theme.colorScheme.primary : null,
+            tooltip: selected ? 'Deselect' : 'Select',
+            onPressed: onToggleSelection,
+          )
+        else if (onIncrement != null)
           IconButton(
             visualDensity: rowDensity,
             icon: const Icon(Icons.add),
             tooltip: 'Add one',
             onPressed: onIncrement,
+            onLongPress: onLongPressIcon,
           ),
       ],
     );
@@ -138,7 +168,10 @@ class ItemRow extends StatelessWidget {
           : Colors.transparent,
       child: InkWell(
         onTap: selectionMode ? onToggleSelection : null,
-        child: row,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: edgePadding),
+          child: row,
+        ),
       ),
     );
   }

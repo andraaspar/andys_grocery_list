@@ -4,31 +4,9 @@ import 'package:flutter/material.dart';
 import '../model/amounts.dart';
 import '../model/locale_names.dart';
 import '../state/settings_controller.dart';
-import 'snackbars.dart';
+import 'file_switcher.dart';
 
-/// What happened when the user tried to change the file.
-typedef FileChange = ({bool changed, String? error});
-
-/// A file opened before, and its name.
-typedef RecentFile = ({String uri, String name});
-
-/// What was picked in the Change file sheet.
-sealed class _FileChoice {
-  const _FileChoice();
-}
-
-class _OpenFile extends _FileChoice {
-  const _OpenFile();
-}
-
-class _CreateFile extends _FileChoice {
-  const _CreateFile();
-}
-
-class _RecentChoice extends _FileChoice {
-  const _RecentChoice(this.uri);
-  final String uri;
-}
+export 'file_switcher.dart' show fileDisplayName;
 
 /// Settings (plan §7): change file, and the locale used for numbers.
 class SettingsPage extends StatelessWidget {
@@ -36,11 +14,7 @@ class SettingsPage extends StatelessWidget {
     super.key,
     required this.settings,
     required this.fileUri,
-    required this.onOpenFile,
-    required this.onCreateFile,
-    this.recentFiles,
-    this.onOpenRecentFile,
-    this.onRemoveRecentFile,
+    required this.files,
   });
 
   final SettingsController settings;
@@ -48,39 +22,12 @@ class SettingsPage extends StatelessWidget {
   /// The current file's URI.
   final String? fileUri;
 
-  /// Pick an existing file / create a new one, and switch to it.
-  final Future<FileChange> Function() onOpenFile;
-  final Future<FileChange> Function() onCreateFile;
-
-  /// The files opened before, other than the current one, that still exist.
-  final Future<List<RecentFile>> Function()? recentFiles;
-  final Future<FileChange> Function(String uri)? onOpenRecentFile;
-  final Future<void> Function(String uri)? onRemoveRecentFile;
+  /// What the file switcher offers.
+  final FileActions files;
 
   Future<void> _changeFile(BuildContext context) async {
-    final recent = await recentFiles?.call() ?? const <RecentFile>[];
-    if (!context.mounted) return;
-    final choice = await showModalBottomSheet<_FileChoice>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => _ChangeFileSheet(
-        recent: recent,
-        onRemove: (uri) => onRemoveRecentFile?.call(uri),
-      ),
-    );
-    if (choice == null || !context.mounted) return;
-    final result = await switch (choice) {
-      _OpenFile() => onOpenFile(),
-      _CreateFile() => onCreateFile(),
-      _RecentChoice(:final uri) => onOpenRecentFile!(uri),
-    };
-    if (!context.mounted) return;
-    if (result.error != null) {
-      showMessage(ScaffoldMessenger.maybeOf(context), result.error!);
-    } else if (result.changed) {
-      Navigator.pop(context);
-    }
+    final changed = await showFileSwitcher(context, files);
+    if (changed && context.mounted) Navigator.pop(context);
   }
 
   Future<void> _pickLocale(BuildContext context) async {
@@ -141,87 +88,6 @@ String systemDefaultLabel(String systemLocale) =>
 /// A sample total in [locale], showing its separators.
 String sampleNumber(String locale) =>
     formatTotal(ListTotal(Decimal.parse('1234.56'), 2), locale);
-
-/// A readable name for a SAF URI: its decoded last path segment, without
-/// the storage volume prefix (`primary:Sync/todo.md` → `todo.md`).
-String fileDisplayName(String uri) {
-  final parsed = Uri.tryParse(uri);
-  var name = parsed != null && parsed.pathSegments.isNotEmpty
-      ? parsed.pathSegments.last
-      : uri;
-  try {
-    name = Uri.decodeComponent(name);
-  } on ArgumentError {
-    // Keep it as is.
-  }
-  final cut = name.lastIndexOf(RegExp('[/:]'));
-  return cut < 0 || cut == name.length - 1 ? name : name.substring(cut + 1);
-}
-
-/// Open, create, or one of the recent files, which can be removed.
-class _ChangeFileSheet extends StatefulWidget {
-  const _ChangeFileSheet({required this.recent, required this.onRemove});
-
-  final List<RecentFile> recent;
-  final void Function(String uri) onRemove;
-
-  @override
-  State<_ChangeFileSheet> createState() => _ChangeFileSheetState();
-}
-
-class _ChangeFileSheetState extends State<_ChangeFileSheet> {
-  late final _recent = [...widget.recent];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return SafeArea(
-      child: ConstrainedBox(
-        // Long recent lists scroll instead of covering the whole screen.
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.8,
-        ),
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.file_open_outlined),
-              title: const Text('Open existing file'),
-              onTap: () => Navigator.pop(context, const _OpenFile()),
-            ),
-            ListTile(
-              leading: const Icon(Icons.note_add_outlined),
-              title: const Text('Create new file'),
-              onTap: () => Navigator.pop(context, const _CreateFile()),
-            ),
-            if (_recent.isNotEmpty) ...[
-              const Divider(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Text('Recent files', style: theme.textTheme.titleSmall),
-              ),
-              for (final file in _recent)
-                ListTile(
-                  key: ValueKey(file.uri),
-                  leading: const Icon(Icons.history),
-                  title: Text(file.name),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.close),
-                    tooltip: 'Remove from recent files',
-                    onPressed: () {
-                      setState(() => _recent.remove(file));
-                      widget.onRemove(file.uri);
-                    },
-                  ),
-                  onTap: () => Navigator.pop(context, _RecentChoice(file.uri)),
-                ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 /// The result of the locale picker. A null [locale] means the system default.
 class _LocaleChoice {

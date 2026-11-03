@@ -90,6 +90,40 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Groceries'), findsOneWidget);
     expect(itemField('Milk'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text(uri.substring(uri.lastIndexOf('/') + 1)),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('tapping the title switches files', (tester) async {
+    SharedPreferences.setMockInitialValues({'fileUri': uri});
+    const other = 'content://other.md';
+    final storage = FakeStorage({
+      uri: '# L\n- [ ] Milk\n',
+      other: '# Work\n- [ ] Report\n',
+    })..nextOpen = other;
+    await pumpApp(tester, storage);
+
+    await tester.tap(find.byTooltip('Switch file'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open existing file'));
+    await tester.pumpAndSettle();
+    expect(itemField('Report'), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: find.text('other.md')),
+      findsOneWidget,
+    );
+
+    // The file before is now a recent file.
+    await tester.tap(find.byTooltip('Switch file'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('todo.md'));
+    await tester.pumpAndSettle();
+    expect(itemField('Milk'), findsOneWidget);
   });
 
   testWidgets('a cancelled picker stays on the welcome page', (tester) async {
@@ -297,6 +331,13 @@ void main() {
 
       expect(find.byType(SettingsPage), findsNothing);
       expect(itemField('Report'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('other.md'),
+        ),
+        findsOneWidget,
+      );
       expect(storage.files[uri], '# L\n- [x] Milk\n');
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('fileUri'), other);

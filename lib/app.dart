@@ -6,6 +6,7 @@ import 'state/document_controller.dart';
 import 'state/settings_controller.dart';
 import 'storage/saf_storage.dart';
 import 'storage/settings.dart';
+import 'ui/file_switcher.dart';
 import 'ui/home_page.dart';
 import 'ui/scroll_memory.dart';
 import 'ui/settings_page.dart';
@@ -29,6 +30,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   Settings? _settings;
   SettingsController? _settingsController;
   DocumentController? _document;
+
+  /// The open file's name, shown as the home page's title.
+  String? _fileName;
   bool _loading = true;
   String? _error;
 
@@ -91,10 +95,21 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       doc.dispose();
       return null;
     }
+    String? name;
+    try {
+      name = await _storage.displayName(uri);
+    } on PlatformException {
+      name = null;
+    }
+    if (!mounted) {
+      doc.dispose();
+      return null;
+    }
     doc.onStorageError = _onStorageError;
     final old = _document;
     setState(() {
       _document = doc;
+      _fileName = name ?? fileDisplayName(uri);
       _error = null;
     });
     await _settings?.setFileUri(uri);
@@ -184,6 +199,20 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     }
   }
 
+  FileActions get _fileActions => FileActions(
+    openFile: () => _pick(_storage.openDocument),
+    createFile: () => _pick(() => _storage.createDocument('todo.md')),
+    recentFiles: _recentFiles,
+    openRecentFile: _openRecentFile,
+    removeRecentFile: _removeRecentFile,
+  );
+
+  /// From the home page's title.
+  void _switchFile() {
+    final context = _navigator.currentContext;
+    if (context != null) showFileSwitcher(context, _fileActions);
+  }
+
   void _openSettings() {
     final settings = _settingsController;
     if (settings == null) return;
@@ -192,11 +221,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         builder: (_) => SettingsPage(
           settings: settings,
           fileUri: _document?.uri,
-          onOpenFile: () => _pick(_storage.openDocument),
-          onCreateFile: () => _pick(() => _storage.createDocument('todo.md')),
-          recentFiles: _recentFiles,
-          onOpenRecentFile: _openRecentFile,
-          onRemoveRecentFile: _removeRecentFile,
+          files: _fileActions,
         ),
       ),
     );
@@ -259,6 +284,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       onGenerateTitle: (_) => appName(),
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: navigationBarStyle(Theme.of(context).brightness),
+        child: child!,
+      ),
       home: _buildHome(),
     );
   }
@@ -283,6 +312,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       helpExpanded: _settings!.helpExpanded,
       onHelpExpandedChanged: _settings!.setHelpExpanded,
       onOpenSettings: _openSettings,
+      title: _fileName,
+      onTapTitle: _switchFile,
     );
   }
 }

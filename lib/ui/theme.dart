@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// The brand colours, taken from the launcher icon
 /// (`tool/generate_launcher_icon.py`): its sunflower-yellow background, and the tiles
@@ -48,6 +49,31 @@ class StateColors extends ThemeExtension<StateColors> {
           done: Color.lerp(done, other.done, t)!,
           failed: Color.lerp(failed, other.failed, t)!,
         );
+}
+
+/// Colours of the list rows that the colour scheme doesn't name.
+@immutable
+class ListColors extends ThemeExtension<ListColors> {
+  const ListColors({required this.header});
+
+  /// The background of the list name rows: a light, untinted grey (dark
+  /// grey in dark mode).
+  final Color header;
+
+  static ListColors of(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.extension<ListColors>() ??
+        ListColors(header: theme.colorScheme.surfaceContainerHigh);
+  }
+
+  @override
+  ListColors copyWith({Color? header}) =>
+      ListColors(header: header ?? this.header);
+
+  @override
+  ListColors lerp(ListColors? other, double t) => other == null
+      ? this
+      : ListColors(header: Color.lerp(header, other.header, t)!);
 }
 
 /// The light and dark themes. The app follows the system setting.
@@ -105,13 +131,33 @@ ThemeData buildTheme(Brightness brightness) {
   );
   return ThemeData(
     colorScheme: scheme,
-    appBarTheme: dark
-        ? null
-        : AppBarTheme(
-            backgroundColor: scheme.primaryContainer,
-            foregroundColor: Colors.black,
-          ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: dark ? null : scheme.primaryContainer,
+      foregroundColor: dark ? null : Colors.black,
+      // Action buttons are 12 px wider than their icons on each side; this
+      // puts the last icon 16 px from the edge, like the rows' icons.
+      actionsPadding: const EdgeInsets.only(right: 4),
+    ),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
-    extensions: [dark ? StateColors.dark : StateColors.light],
+    extensions: [
+      dark ? StateColors.dark : StateColors.light,
+      ListColors(header: neutral.surfaceContainerHigh),
+    ],
   );
 }
+
+/// The system navigation bar over the bottom of the app: see-through, with
+/// icons that contrast with the theme's background.
+///
+/// Without this, Android uses light icons, meant for a black bar. With the
+/// app drawn edge to edge they would sit on the app's light background,
+/// over a white contrast backing, and be almost invisible.
+SystemUiOverlayStyle navigationBarStyle(Brightness brightness) =>
+    SystemUiOverlayStyle(
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarIconBrightness: brightness == Brightness.dark
+          ? Brightness.light
+          : Brightness.dark,
+      systemNavigationBarContrastEnforced: false,
+    );

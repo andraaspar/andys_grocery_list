@@ -403,3 +403,54 @@ OpResult restoreStates(TodoDocument doc, Map<String, ItemState> states) =>
           ),
       ]),
     );
+
+// ---------------------------------------------------------------------------
+// Reorder mode
+
+/// Moves item [itemId] into list [toListId], in front of the item that is at
+/// [toIndex] there now ([toIndex] equal to the list's length: to the end).
+/// A list left without items gets an empty one; an empty item that was the
+/// target list's only item is dropped.
+OpResult moveItem(
+  TodoDocument doc,
+  String itemId,
+  String toListId,
+  int toIndex,
+) {
+  final from = doc.locate(itemId);
+  final to = doc.listIndexOf(toListId);
+  if (from == null || to < 0) return OpResult(doc);
+  final target = doc.lists[to];
+  var index = toIndex.clamp(0, target.items.length);
+  if (from.listIndex == to &&
+      (index == from.itemIndex || index == from.itemIndex + 1)) {
+    return OpResult(doc);
+  }
+  final item = doc.lists[from.listIndex].items[from.itemIndex];
+  final lists = [...doc.lists];
+  final source = lists[from.listIndex];
+  lists[from.listIndex] = source.copyWith(
+    items: [...source.items]..removeAt(from.itemIndex),
+  );
+  if (from.listIndex == to && from.itemIndex < index) index--;
+  final dest = lists[to];
+  final items = from.listIndex != to && _isOnlyEmptyItem(dest)
+      ? [item]
+      : ([...dest.items]..insert(index, item));
+  lists[to] = dest.copyWith(items: items);
+  return OpResult(normalize(TodoDocument(lists)));
+}
+
+/// Moves list [listId] in front of the list that is at [toIndex] now
+/// ([toIndex] equal to the number of lists: to the end).
+OpResult moveList(TodoDocument doc, String listId, int toIndex) {
+  final from = doc.listIndexOf(listId);
+  if (from < 0) return OpResult(doc);
+  var index = toIndex.clamp(0, doc.lists.length);
+  if (index == from || index == from + 1) return OpResult(doc);
+  final lists = [...doc.lists];
+  final list = lists.removeAt(from);
+  if (from < index) index--;
+  lists.insert(index, list);
+  return OpResult(TodoDocument(lists));
+}
