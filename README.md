@@ -89,10 +89,19 @@ flutter build appbundle --release
 # → build/app/outputs/bundle/release/app-release.aab
 ```
 
-> **Signing:** release builds are currently signed with the debug key (see
-> `android/app/build.gradle.kts`). To publish, set up your own keystore as
-> described in Flutter's
-> [Android deployment guide](https://docs.flutter.dev/deployment/android#sign-the-app).
+> **Signing:** local release builds are signed with the debug key (see
+> `android/app/build.gradle.kts`). F-Droid builds the app from source and
+> signs it with its own key.
+
+## Releasing
+
+1. Raise the version in `pubspec.yaml` (`name+code`; the code must go up).
+2. Add `fastlane/metadata/android/en-US/changelogs/<code>.txt`.
+3. Commit, then tag the commit `v<name>` (e.g. `v1.0.1`) and push the tag.
+
+F-Droid picks up new `v*` tags and builds them. The store listing (texts,
+icon, screenshots) lives in `fastlane/metadata/android`. The store icon is
+written by the launcher icon script below.
 
 ### Tests and analysis
 

@@ -1,0 +1,1 @@
+Grocery and TODO lists stored in a plain Markdown file you choose

@@ -11,7 +11,8 @@ Writes:
   - the adaptive icon (Android 8+): a colour vector foreground on a colour
     background, plus a flat outline version as the monochrome layer for
     themed icons (Android 13+);
-  - round legacy PNGs for older Android versions, rasterized here.
+  - round legacy PNGs for older Android versions, rasterized here;
+  - the 512 px store icon in the fastlane metadata (used by F-Droid).
 
 Uses only the standard library. Run from the project root:
     python3 tool/generate_launcher_icon.py
@@ -24,6 +25,7 @@ import zlib
 from dataclasses import dataclass
 
 RES = 'android/app/src/main/res'
+STORE_ICON = 'fastlane/metadata/android/en-US/images/icon.png'
 
 # These colours and the tile geometry are mirrored in lib/ui/theme.dart
 # (BrandColors) and lib/ui/tiles_logo.dart; change them together.
@@ -320,6 +322,7 @@ def main():
     write(f'{RES}/values/ic_launcher_colors.xml', COLORS)
     for density, size in LEGACY_SIZES.items():
         write(f'{RES}/mipmap-{density}/ic_launcher.png', render(size, shapes))
+    write(STORE_ICON, render(512, shapes))
 
 
 if __name__ == '__main__':
