@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../model/todo_document.dart';
 import 'sentinel_controller.dart';
+import 'theme.dart';
 
 /// One item: state icon + wrapping text field + quantity button (plan §3).
 class ItemRow extends StatelessWidget {
@@ -44,6 +45,7 @@ class ItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final states = StateColors.of(context);
     final base = theme.textTheme.bodyLarge!;
     final muted = item.state != ItemState.newItem;
     final style = muted
@@ -61,9 +63,12 @@ class ItemRow extends StatelessWidget {
       children: [
         IconButton(
           icon: Icon(iconFor(item.state)),
-          color: item.state == ItemState.failed
-              ? theme.colorScheme.error
-              : null,
+          // Coloured like the launcher icon's tiles; NEW stays neutral.
+          color: switch (item.state) {
+            ItemState.newItem => null,
+            ItemState.done => states.done,
+            ItemState.failed => states.failed,
+          },
           tooltip: switch (item.state) {
             ItemState.newItem => 'New',
             ItemState.done => 'Done',

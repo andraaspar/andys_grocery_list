@@ -18,10 +18,15 @@ import 'list_footer.dart';
 import 'list_header.dart';
 import 'scroll_memory.dart';
 import 'sentinel_controller.dart';
+import 'snackbars.dart';
 
 /// Approximate height of one item row, used to size the space below the last
 /// item so it can be scrolled to the top of the viewport (plan §3, Scrolling).
 const itemRowHeight = 48.0;
+
+/// How much room is kept between the focused row and the edges of the
+/// viewport when it is scrolled into view.
+const revealMargin = 16.0;
 
 /// The main screen: one scrolling list of list headers, item rows and total
 /// lines, followed by blank space.
@@ -101,6 +106,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// The mounted row widgets, by row key, for measuring the scroll anchor.
   final _rowContexts = <String, BuildContext>{};
   Timer? _anchorSaveTimer;
+  Timer? _revealTimer;
+
+  /// The operation the shown Undo snackbar reverts. Cleared when the
+  /// snackbar closes, or when the document changes in another way.
+  UndoToken? _pendingUndo;
 
   DocumentController get _document => widget.document;
 
@@ -121,6 +131,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _anchorSaveTimer?.cancel();
+    _revealTimer?.cancel();
     _saveAnchor();
     if (_document.onReloadedBeforeSave == _onReloadedBeforeSave) {
       _document.onReloadedBeforeSave = null;
@@ -147,6 +158,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // first, and by position if it is gone.
     final anchor = _document.reloading ? _currentAnchor() : null;
     final anchorKey = anchor == null ? null : _rows[_rowIndexAt(anchor)].key;
+    final undo = _pendingUndo;
+    if (undo != null && !identical(_document.doc, undo.after)) {
+      // Undo would no longer put back what the user expects.
+      _pendingUndo = null;
+      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    }
     _syncFields();
     _selection.retainOnly(_items.keys.toSet());
     setState(_buildRows);
@@ -164,16 +181,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _onReloadedBeforeSave() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text('File changed externally — reloaded')),
-      );
+    _showMessage('File changed externally — reloaded');
+  }
+
+  void _showMessage(String message, {UndoToken? undo}) {
+    final snack = showMessage(
+      ScaffoldMessenger.maybeOf(context),
+      message,
+      onUndo: undo == null ? null : () => _document.undo(undo),
+    );
+    _pendingUndo = undo;
+    if (undo != null) {
+      snack?.closed.then((_) {
+        if (identical(_pendingUndo, undo)) _pendingUndo = null;
+      });
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) _saveAnchor();
+  }
+
+  /// The keyboard opening or the phone rotating shrinks the viewport, which
+  /// can hide the focused row. Once the size settles, it is brought back.
+  @override
+  void didChangeMetrics() {
+    _revealTimer?.cancel();
+    _revealTimer = Timer(const Duration(milliseconds: 150), _revealFocusedRow);
   }
 
   void _onSelectionChanged() => setState(() {});
@@ -384,6 +419,51 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       }
       node.requestFocus();
+      _revealFocusedRow();
+    });
+  }
+
+  /// The row key of the focused item or list name, if any.
+  String? _focusedRowKey() {
+    for (final MapEntry(:key, :value) in _items.entries) {
+      if (value.focusNode.hasFocus) return key;
+    }
+    for (final MapEntry(:key, :value) in _names.entries) {
+      if (value.focusNode.hasFocus) return _listKey(key);
+    }
+    return null;
+  }
+
+  /// After the next layout, scrolls the focused row fully into view, with
+  /// [revealMargin] around it (plan §3). The text field itself only keeps
+  /// the caret visible, which can leave the rest of the row, or the row's
+  /// other lines, cut off.
+  void _revealFocusedRow() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final key = _focusedRowKey();
+      final ro = key == null ? null : _rowContexts[key]?.findRenderObject();
+      if (ro is! RenderBox || !ro.attached) return;
+      final viewport = RenderAbstractViewport.of(ro);
+      final p = _scrollController.position;
+      // The offsets at which the row's top is at the top of the viewport and
+      // its bottom at the bottom.
+      final top = viewport.getOffsetToReveal(ro, 0).offset - revealMargin;
+      final bottom = viewport.getOffsetToReveal(ro, 1).offset + revealMargin;
+      // A row taller than the viewport: the caret is kept visible instead.
+      if (bottom > top) return;
+      final target = p.pixels > top
+          ? top
+          : p.pixels < bottom
+          ? bottom
+          : p.pixels;
+      final clamped = target.clamp(p.minScrollExtent, p.maxScrollExtent);
+      if ((clamped - p.pixels).abs() < 1) return;
+      _scrollController.animateTo(
+        clamped,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+      );
     });
   }
 
@@ -404,7 +484,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // The ⋯ menu (plan §4)
 
   Future<void> _onListAction(TodoList list, ListAction action) async {
-    final messenger = ScaffoldMessenger.of(context);
     final current = _document.doc.lists.firstWhere(
       (l) => l.id == list.id,
       orElse: () => list,
@@ -412,30 +491,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     switch (action) {
       case ListAction.reset:
         final previous = _document.resetList(list.id);
-        messenger
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: const Text('List reset'),
-              action: SnackBarAction(
-                label: 'Undo',
-                onPressed: () => _document.restoreStates(previous),
-              ),
-            ),
-          );
+        // Reset's Undo puts back states, so later edits don't invalidate it,
+        // and it is not tracked in [_pendingUndo].
+        _pendingUndo = null;
+        showMessage(
+          ScaffoldMessenger.maybeOf(context),
+          'List reset',
+          onUndo: () => _document.restoreStates(previous),
+        );
       case ListAction.copy:
         await Clipboard.setData(
           ClipboardData(text: formatList(current, _document.numberContext)),
         );
-        messenger
-          ..hideCurrentSnackBar()
-          ..showSnackBar(const SnackBar(content: Text('List copied')));
+        if (!mounted) return;
+        _showMessage('List copied');
       case ListAction.deleteDone:
-        _document.deleteDone(list.id);
-      case ListAction.delete:
-        if (await confirmDeleteList(context, current)) {
-          _document.deleteList(list.id);
+        final n = current.items.where((i) => i.state == ItemState.done).length;
+        if (n == 0) {
+          _showMessage('No done items');
+          return;
         }
+        final undo = _document.deleteDone(list.id);
+        _showMessage('Deleted ${_countItems(n)}', undo: undo);
+      case ListAction.delete:
+        if (!await confirmDeleteList(context, current)) return;
+        final undo = _document.deleteList(list.id);
+        if (!mounted) return;
+        _showMessage(
+          current.name.isEmpty ? 'List deleted' : 'Deleted "${current.name}"',
+          undo: undo,
+        );
     }
   }
 
@@ -448,17 +533,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _copySelected() async {
-    final messenger = ScaffoldMessenger.of(context);
     final items = itemsInOrder(_document.doc, _selection.ids);
     await Clipboard.setData(
       ClipboardData(text: formatItems(items, _document.numberContext)),
     );
-    final n = items.length;
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text('Copied $n ${n == 1 ? 'item' : 'items'}')),
-      );
+    if (!mounted) return;
+    _showMessage('Copied ${_countItems(items.length)}');
   }
 
   Future<void> _deleteSelected() async {
@@ -467,7 +547,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     _selection.clear();
-    _document.deleteItems(ids);
+    final undo = _document.deleteItems(ids);
+    if (!mounted) return;
+    _showMessage('Deleted ${_countItems(ids.length)}', undo: undo);
   }
 
   AppBar _buildAppBar() {
@@ -489,7 +571,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ],
       );
     }
+    // A contextual bar, coloured so selection mode is easy to tell apart.
+    final scheme = Theme.of(context).colorScheme;
     return AppBar(
+      backgroundColor: scheme.inverseSurface,
+      foregroundColor: scheme.onInverseSurface,
       leading: IconButton(
         icon: const Icon(Icons.close),
         tooltip: 'Close',
@@ -642,3 +728,5 @@ class _TrackedRowState extends State<_TrackedRow> {
   @override
   Widget build(BuildContext context) => widget.child;
 }
+
+String _countItems(int n) => '$n ${n == 1 ? 'item' : 'items'}';

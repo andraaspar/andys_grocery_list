@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../model/amounts.dart';
 import '../state/settings_controller.dart';
+import 'snackbars.dart';
 
 /// What happened when the user tried to change the file.
 typedef FileChange = ({bool changed, String? error});
@@ -52,9 +53,7 @@ class SettingsPage extends StatelessWidget {
     final result = await (create ? onCreateFile() : onOpenFile());
     if (!context.mounted) return;
     if (result.error != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(result.error!)));
+      showMessage(ScaffoldMessenger.maybeOf(context), result.error!);
     } else if (result.changed) {
       Navigator.pop(context);
     }

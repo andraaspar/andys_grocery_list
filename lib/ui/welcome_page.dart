@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_name.dart';
+import 'tiles_logo.dart';
 
 /// Shown on first launch, or when the file can no longer be opened (plan §8).
 class WelcomePage extends StatefulWidget {
@@ -48,11 +49,7 @@ class _WelcomePageState extends State<WelcomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(
-                    Icons.checklist,
-                    size: 64,
-                    color: theme.colorScheme.primary,
-                  ),
+                  const Center(child: TilesLogo()),
                   const SizedBox(height: 16),
                   Text(
                     appName(),

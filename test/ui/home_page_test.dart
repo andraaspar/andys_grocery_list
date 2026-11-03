@@ -447,6 +447,114 @@ void main() {
       await tester.pumpAndSettle();
       expect(serialized(doc), '# TODO\n- [ ] \n');
     });
+
+    testWidgets('Delete done can be undone', (tester) async {
+      final doc = await pump(tester, '# L\n- [x] a\n- [ ] b\n');
+      await choose(tester, 'Delete done');
+      expect(find.text('Deleted 1 item'), findsOneWidget);
+      expect(serialized(doc), '# L\n- [ ] b\n');
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+      expect(serialized(doc), '# L\n- [x] a\n- [ ] b\n');
+    });
+
+    testWidgets('Delete done with nothing done says so', (tester) async {
+      await pump(tester, '# L\n- [ ] a\n');
+      await choose(tester, 'Delete done');
+      expect(find.text('No done items'), findsOneWidget);
+      expect(find.text('Undo'), findsNothing);
+    });
+
+    testWidgets('Delete list can be undone', (tester) async {
+      final doc = await pump(tester, '# A\n- [ ] a\n\n# B\n- [x] b\n');
+      await choose(tester, 'Delete list', list: 1);
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(find.text('Deleted "B"'), findsOneWidget);
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+      expect(serialized(doc), '# A\n- [ ] a\n\n# B\n- [x] b\n');
+    });
+
+    testWidgets('Undo of a delete goes away after another edit', (
+      tester,
+    ) async {
+      final doc = await pump(tester, '# L\n- [x] a\n- [ ] b\n');
+      await choose(tester, 'Delete done');
+      expect(find.text('Undo'), findsOneWidget);
+      await focusItem(tester, 'b', 1);
+      await imeUpdate(tester, 'bc|');
+      await tester.pumpAndSettle();
+      expect(find.text('Undo'), findsNothing);
+      expect(serialized(doc), '# L\n- [ ] bc\n');
+    });
+
+    testWidgets('the Undo snackbar closes by itself', (tester) async {
+      await pump(tester, '# L\n- [x] a\n');
+      await choose(tester, 'Reset');
+      expect(find.text('Undo'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      expect(find.text('Undo'), findsNothing);
+    });
+  });
+
+  group('keeping the focused item visible', () {
+    // Long items wrap, so the text field keeping just the caret's line in
+    // view is not enough.
+    String text(int i) => 'item $i${' word' * 40}';
+
+    Future<DocumentController> pumpLong(WidgetTester tester) => pump(
+      tester,
+      '# L\n${[for (var i = 0; i < 30; i++) '- [ ] ${text(i)}\n'].join()}',
+    );
+
+    double screenBottom(WidgetTester tester) =>
+        (tester.view.physicalSize.height - tester.view.viewInsets.bottom) /
+        tester.view.devicePixelRatio;
+
+    /// The last item that is fully on screen.
+    int lastVisible(WidgetTester tester) {
+      var i = 0;
+      while (tester.getRect(itemField(text(i + 1))).bottom <
+          screenBottom(tester)) {
+        i++;
+      }
+      return i;
+    }
+
+    void expectFullyVisible(WidgetTester tester, String text) {
+      final rect = tester.getRect(itemField(text));
+      expect(rect.height, greaterThan(60), reason: 'the item should wrap');
+      expect(rect.top, greaterThanOrEqualTo(kToolbarHeight));
+      expect(rect.bottom, lessThanOrEqualTo(screenBottom(tester)));
+    }
+
+    testWidgets('when the keyboard opens', (tester) async {
+      await pumpLong(tester);
+      final i = lastVisible(tester);
+      await focusItem(tester, text(i), 0);
+      tester.view.viewInsets = FakeViewPadding(
+        bottom: 300 * tester.view.devicePixelRatio,
+      );
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      expectFullyVisible(tester, text(i));
+    });
+
+    testWidgets('after Enter at the start pushes the item down', (
+      tester,
+    ) async {
+      await pumpLong(tester);
+      final i = lastVisible(tester);
+      await focusItem(tester, text(i), 0);
+      await imeUpdate(tester, '\n|${text(i)}');
+      await tester.pumpAndSettle();
+      expect(fieldOf(tester, itemField(text(i))).focusNode!.hasFocus, isTrue);
+      expectFullyVisible(tester, text(i));
+    });
   });
 
   group('selection mode', selectionTests);
@@ -601,5 +709,16 @@ void selectionTests() {
     await tester.pumpAndSettle();
     expect(serialized(doc), '# A\n- [ ] \n\n# B\n- [ ] c\n');
     expect(find.text('2 selected'), findsNothing);
+  });
+  testWidgets('Delete of selected items can be undone', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n- [x] b\n');
+    await longPressIcon(tester, 'b');
+    await tester.tap(find.byTooltip('Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('Deleted 1 item'), findsOneWidget);
+    expect(serialized(doc), '# L\n- [ ] a\n');
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [ ] a\n- [x] b\n');
   });
 }

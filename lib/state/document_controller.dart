@@ -8,6 +8,10 @@ import '../model/operations.dart' as ops;
 import '../model/todo_document.dart';
 import '../storage/saf_storage.dart';
 
+/// Undoes one operation with [DocumentController.undo]: the document before
+/// and right after it.
+typedef UndoToken = ({TodoDocument before, TodoDocument after});
+
 /// Holds the document, applies edit operations to it, and keeps it in sync
 /// with its file (plan §8, §9).
 ///
@@ -300,20 +304,37 @@ class DocumentController extends ChangeNotifier {
   void restoreStates(Map<String, ItemState> states) =>
       _apply(ops.restoreStates(_doc, states));
 
-  void deleteDone(String listId) {
-    if (_doc.listIndexOf(listId) < 0) return;
-    _apply(ops.deleteDone(_doc, listId));
+  /// Removes the DONE items of the list. Returns how to undo it, or null if
+  /// nothing changed.
+  UndoToken? deleteDone(String listId) {
+    if (_doc.listIndexOf(listId) < 0) return null;
+    return _undoable(() => _apply(ops.deleteDone(_doc, listId)));
   }
 
-  /// Deletes the selected items (plan §6).
-  void deleteItems(Set<String> itemIds) {
-    if (itemIds.isEmpty) return;
-    _apply(ops.deleteItems(_doc, itemIds));
+  /// Deletes the selected items (plan §6). Returns how to undo it.
+  UndoToken? deleteItems(Set<String> itemIds) {
+    if (itemIds.isEmpty) return null;
+    return _undoable(() => _apply(ops.deleteItems(_doc, itemIds)));
   }
 
-  void deleteList(String listId) {
-    if (_doc.listIndexOf(listId) < 0) return;
-    _apply(ops.deleteList(_doc, listId));
+  /// Deletes the list. Returns how to undo it.
+  UndoToken? deleteList(String listId) {
+    if (_doc.listIndexOf(listId) < 0) return null;
+    return _undoable(() => _apply(ops.deleteList(_doc, listId)));
+  }
+
+  UndoToken? _undoable(void Function() op) {
+    final before = _doc;
+    op();
+    return identical(before, _doc) ? null : (before: before, after: _doc);
+  }
+
+  /// Puts the document back as it was before [token]'s operation, but only
+  /// if nothing has changed it since. Returns whether it did.
+  bool undo(UndoToken token) {
+    if (!identical(_doc, token.after)) return false;
+    _apply(ops.OpResult(token.before));
+    return true;
   }
 }
 

@@ -9,6 +9,8 @@ import 'storage/settings.dart';
 import 'ui/home_page.dart';
 import 'ui/scroll_memory.dart';
 import 'ui/settings_page.dart';
+import 'ui/snackbars.dart';
+import 'ui/theme.dart';
 import 'ui/welcome_page.dart';
 
 class App extends StatefulWidget {
@@ -155,11 +157,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       WidgetsBinding.instance.addPostFrameCallback((_) => doc?.dispose());
       return;
     }
-    _messenger.currentState
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text('Could not access the file: ${_message(e)}')),
-      );
+    showMessage(
+      _messenger.currentState,
+      'Could not access the file: ${_message(e)}',
+    );
   }
 
   String _message(Object e) =>
@@ -197,11 +198,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       scaffoldMessengerKey: _messenger,
       navigatorKey: _navigator,
       onGenerateTitle: (_) => appName(),
-      theme: ThemeData(colorSchemeSeed: Colors.green),
-      darkTheme: ThemeData(
-        colorSchemeSeed: Colors.green,
-        brightness: Brightness.dark,
-      ),
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
       home: _buildHome(),
     );
   }

@@ -250,8 +250,8 @@ Each list is laid out like this:
 |---|---|
 | **Reset** | Set every item in the list to NEW. Quantities are kept. Shows a snackbar with Undo. |
 | **Copy list** | Copy the list to the clipboard: `# name`, then the items (empty items are skipped), using the format rule from §6. If all items are NEW, each line is `- text`; otherwise the backing format is used. Quantities are part of the text, so they are kept. The copied text can be pasted back in as-is. |
-| **Delete done** | Remove every **DONE** item from the list. FAILED items are kept. |
-| **Delete list** | Confirmation dialog ("Delete list "X" and its N items?"). If it was the only list, it is replaced by an empty `TODO` list. |
+| **Delete done** | Remove every **DONE** item from the list. FAILED items are kept. Shows a snackbar with Undo ("No done items" if there were none). |
+| **Delete list** | Confirmation dialog ("Delete list "X" and its N items?"). If it was the only list, it is replaced by an empty `TODO` list. Shows a snackbar with Undo. |
 
 ---
 
@@ -288,7 +288,7 @@ Pasting into a **list name** field just inserts the text on one line (line break
   - The + buttons are hidden.
   - The Android back button leaves selection mode.
   - Items from several lists can be selected at once.
-- **Delete selected:** removes all selected items (with a confirmation if N > 1), normalizes, and leaves selection mode.
+- **Delete selected:** removes all selected items (with a confirmation if N > 1), normalizes, and leaves selection mode. Shows a snackbar with Undo.
 - **Copy selected:** copies the items in document order, one per line, with a trailing newline.
   - If **every** selected item is NEW: each line is `- text`.
   - Otherwise: each line uses the backing format (`- [ ] `, `- [x] `, `- [x] FAILED `).
@@ -378,6 +378,10 @@ lib/
     dialogs.dart               # confirm delete
     welcome_page.dart          # pick/create file
     settings_page.dart         # change file, locale picker
+    snackbars.dart             # one helper for messages and Undo
+    theme.dart                 # light and dark themes, brand and state colours
+    tiles_logo.dart            # the launcher icon drawn in Flutter (welcome page)
+tool/generate_launcher_icon.py # launcher icon (adaptive + legacy PNGs)
 android/app/src/main/kotlin/hu/parditka/andys_grocery_list/MainActivity.kt   # SAF channel
 ```
 
@@ -466,6 +470,10 @@ android/app/src/main/kotlin/hu/parditka/andys_grocery_list/MainActivity.kt   # S
 - Numbers are parsed "naturally" according to the configurable **locale** (default: the system locale). `.` and `,` both work as the decimal point, and thousands separators are understood. Totals are displayed with the locale's thousands and decimal separators.
 - **No currency**: prices and totals are plain numbers.
 - The scroll position is always remembered (per file, across restarts and external reloads) as a row anchor. Below the last item there is about one viewport of blank space, so the last item can be scrolled to the top.
+- Deletes (Delete done, Delete list, Delete selected) show a snackbar with **Undo**. It restores the document only while nothing else has changed it; any other edit or an external reload hides the snackbar. Snackbars with Undo close after 5 s, plain ones after 3 s.
+- The launcher icon shows the three item states, since they are what sets the app apart: big, playful 3D tiles on sunflower yellow, arranged like an A — a plain white tile (NEW) on top, partly covered by a green tile with a tick (DONE) and a coral tile with a cross (FAILED). Themed icons (Android 13+) get a flat outline version. The welcome screen shows the same artwork (`lib/ui/tiles_logo.dart`).
+- The app's theme comes from the icon: seeded from its sunflower yellow, with DONE icons green and FAILED icons coral like the tiles. Yellow text isn't readable on a light background, so in light mode the app bar is sunflower and text accents are dark gold; in dark mode the accents are sunflower and the bar stays dark. Selection mode uses an inverted (dark/light) bar so it stands apart.
+- The theme follows the system's light/dark setting. The Android launch screen uses the same background colour as the app, so there is no flash.
 - The list total is Σ quantity × price over the **DONE** items. It is shown **after the list's last item**, so it never moves the items being edited. It is shown whenever the list contains any price, and is never written to the file.
 
 ---
