@@ -267,6 +267,11 @@ class DocumentController extends ChangeNotifier {
     _apply(ops.backspaceAtStart(_doc, itemId));
   }
 
+  /// Backspace in an empty list name: merges the list into the one above,
+  /// or deletes it if it holds only an empty item.
+  void backspaceListName(String listId) =>
+      _apply(ops.backspaceListName(_doc, listId));
+
   void paste(String itemId, int start, int end, String text) {
     if (_doc.itemById(itemId) == null) return;
     _apply(ops.paste(_doc, itemId, start, end, text));

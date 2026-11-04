@@ -52,6 +52,14 @@ class SettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  ColorMode get colorMode => ColorMode.fromName(_settings.colorMode);
+
+  Future<void> setColorMode(ColorMode colorMode) async {
+    if (colorMode == this.colorMode) return;
+    await _settings.setColorMode(colorMode.name);
+    notifyListeners();
+  }
+
   /// Only matters while following the system.
   void systemLocaleChanged() {
     if (localeOverride == null) notifyListeners();

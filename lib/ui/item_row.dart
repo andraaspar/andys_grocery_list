@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../model/todo_document.dart';
@@ -20,6 +21,7 @@ class ItemRow extends StatelessWidget {
     this.selected = false,
     this.onToggleSelection,
     this.dragHandle,
+    this.viewMode = false,
   });
 
   final TodoItem item;
@@ -44,7 +46,12 @@ class ItemRow extends StatelessWidget {
   /// edited.
   final Widget? dragHandle;
 
-  bool get _locked => selectionMode || dragHandle != null;
+  /// View mode: the text can't be edited, a tap anywhere on the row
+  /// changes the state, and the + button is hidden, keeping its room so the
+  /// text doesn't rewrap.
+  final bool viewMode;
+
+  bool get _locked => selectionMode || dragHandle != null || viewMode;
 
   /// Space at both ends of a row. The icon buttons are 8 px wider than their
   /// icons on each side, so with this the icons are 16 px from the screen
@@ -89,7 +96,7 @@ class ItemRow extends StatelessWidget {
             ItemState.failed => 'Failed',
           },
           onPressed: selectionMode ? onToggleSelection : onCycleState,
-          onLongPress: selectionMode ? null : onLongPressIcon,
+          onLongPress: _locked ? null : onLongPressIcon,
         ),
         Expanded(
           child: Padding(
@@ -98,7 +105,11 @@ class ItemRow extends StatelessWidget {
               bottom: metrics.textPadding,
               // Selection mode puts a check mark in the place of +, so the
               // text keeps its width and doesn't rewrap.
-              right: onIncrement == null && dragHandle == null && !selectionMode
+              right:
+                  onIncrement == null &&
+                      dragHandle == null &&
+                      !selectionMode &&
+                      !viewMode
                   ? 8
                   : 0,
             ),
@@ -148,6 +159,15 @@ class ItemRow extends StatelessWidget {
             tooltip: selected ? 'Deselect' : 'Select',
             onPressed: onToggleSelection,
           )
+        else if (viewMode)
+          Visibility.maintain(
+            visible: false,
+            child: IconButton(
+              style: metrics.buttonStyle,
+              icon: const Icon(Icons.add),
+              onPressed: null,
+            ),
+          )
         else if (onIncrement != null)
           IconButton(
             style: metrics.buttonStyle,
@@ -164,12 +184,52 @@ class ItemRow extends StatelessWidget {
           ? theme.colorScheme.secondaryContainer
           : Colors.transparent,
       child: InkWell(
-        onTap: selectionMode ? onToggleSelection : null,
+        onTap: selectionMode
+            ? onToggleSelection
+            : viewMode
+            ? onCycleState
+            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: edgePadding),
-          child: row,
+          child: _locked || onLongPressIcon == null
+              ? row
+              : _RowLongPress(onLongPress: onLongPressIcon!, child: row),
         ),
       ),
     );
   }
+}
+
+/// Calls [onLongPress] on a long press anywhere on [child], the text field
+/// included.
+///
+/// The text field's own long press (selecting a word) would win over an
+/// ordinary one, as the innermost recognizer's timer fires first. This one
+/// fires slightly earlier, so it wins instead.
+class _RowLongPress extends StatelessWidget {
+  const _RowLongPress({required this.onLongPress, required this.child});
+
+  final VoidCallback onLongPress;
+  final Widget child;
+
+  static const _duration = Duration(milliseconds: 450);
+
+  @override
+  Widget build(BuildContext context) => RawGestureDetector(
+    gestures: {
+      LongPressGestureRecognizer:
+          GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+            () => LongPressGestureRecognizer(
+              duration: _duration,
+              debugOwner: this,
+            ),
+            (r) => r.onLongPress = () {
+              // The buzz the icons' long press gives.
+              Feedback.forLongPress(context);
+              onLongPress();
+            },
+          ),
+    },
+    child: child,
+  );
 }

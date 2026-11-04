@@ -136,6 +136,8 @@ ThemeData buildTheme(Brightness brightness, {Spacing spacing = Spacing.dense}) {
     appBarTheme: AppBarTheme(
       backgroundColor: dark ? null : scheme.primaryContainer,
       foregroundColor: dark ? null : Colors.black,
+      // Keep the bar's colour when the list scrolls under it.
+      scrolledUnderElevation: 0,
       // Action buttons are 12 px wider than their icons on each side; this
       // puts the last icon 16 px from the edge, like the rows' icons.
       // [scaleAppBar] adjusts it to the text size.

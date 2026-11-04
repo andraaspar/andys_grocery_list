@@ -17,6 +17,8 @@ class Settings {
   static const _spacingKey = 'spacing';
   // Not `fontSize`: that key held names of an older set of sizes.
   static const _fontSizeKey = 'textSize';
+  static const _colorModeKey = 'colorMode';
+  static const _viewModeKey = 'viewMode';
 
   /// How many recent files are remembered.
   static const maxRecentFiles = 10;
@@ -58,6 +60,18 @@ class Settings {
   String? get fontSize => _prefs.getString(_fontSizeKey);
 
   Future<void> setFontSize(String name) => _prefs.setString(_fontSizeKey, name);
+
+  /// Whether the list is locked in view mode. Edit mode is the default.
+  bool get viewMode => _prefs.getBool(_viewModeKey) ?? false;
+
+  Future<void> setViewMode(bool viewMode) =>
+      _prefs.setBool(_viewModeKey, viewMode);
+
+  /// The name of the chosen colour mode. Null: the default.
+  String? get colorMode => _prefs.getString(_colorModeKey);
+
+  Future<void> setColorMode(String name) =>
+      _prefs.setString(_colorModeKey, name);
 
   /// The locale chosen in Settings, such as `de_DE`. Null: follow the
   /// system (plan §7).

@@ -28,19 +28,19 @@ Future<DocumentController> pump(WidgetTester tester, String md) async {
 String serialized(DocumentController d) =>
     serializeDocument(d.doc, NumberContext.en);
 
-Finder itemField(String text) => find.byWidgetPredicate(
-  (w) =>
-      w is TextField &&
-      w.controller is SentinelController &&
-      (w.controller! as SentinelController).modelText == text,
+Finder _field(Type row, String text) => find.descendant(
+  of: find.byType(row),
+  matching: find.byWidgetPredicate(
+    (w) =>
+        w is TextField &&
+        w.controller is SentinelController &&
+        (w.controller! as SentinelController).modelText == text,
+  ),
 );
 
-Finder nameField(String name) => find.byWidgetPredicate(
-  (w) =>
-      w is TextField &&
-      w.controller is! SentinelController &&
-      w.controller!.text == name,
-);
+Finder itemField(String text) => _field(ItemRow, text);
+
+Finder nameField(String name) => _field(ListHeader, name);
 
 TextField fieldOf(WidgetTester tester, Finder f) => tester.widget<TextField>(f);
 
@@ -165,7 +165,7 @@ void main() {
     final name = nameField('');
     expect(hasFocus(tester, name), isTrue);
     expect(
-      fieldOf(tester, name).controller!.selection,
+      controllerOf(tester, name).modelSelection,
       const TextSelection.collapsed(offset: 0),
     );
   });
@@ -234,6 +234,57 @@ void main() {
     expect(
       controllerOf(tester, itemField('Milk')).modelSelection,
       const TextSelection.collapsed(offset: 0),
+    );
+  });
+
+  testWidgets('Backspace in an empty list name merges it up', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n\n# \n- [ ] b\n');
+    await tester.showKeyboard(nameField(''));
+    await tester.pump();
+    await imeUpdate(tester, '|', dropSentinel: true);
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [ ] a\n- [ ] b\n');
+    expect(hasFocus(tester, itemField('a')), isTrue);
+    expect(
+      controllerOf(tester, itemField('a')).modelSelection,
+      const TextSelection.collapsed(offset: 1),
+    );
+  });
+
+  testWidgets('Backspace in an empty, empty list deletes it', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n\n# \n- [ ] \n');
+    await tester.showKeyboard(nameField(''));
+    await tester.pump();
+    await imeUpdate(tester, '|', dropSentinel: true);
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [ ] a\n');
+    expect(hasFocus(tester, itemField('a')), isTrue);
+  });
+
+  testWidgets('Backspace at the start of a list name does nothing', (
+    tester,
+  ) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n\n# M\n- [ ] \n');
+    await tester.showKeyboard(nameField('M'));
+    controllerOf(tester, nameField('M')).setModelSelection(0);
+    await tester.pump();
+    await imeUpdate(tester, '|M', dropSentinel: true);
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [ ] a\n\n# M\n- [ ] \n');
+  });
+
+  testWidgets('pasting item-like text into a list name inserts it', (
+    tester,
+  ) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n');
+    await tester.showKeyboard(nameField('L'));
+    await tester.pump();
+    await imeUpdate(tester, 'L- [x] y|');
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L- [x] y\n- [ ] a\n');
+    expect(
+      controllerOf(tester, nameField('L- [x] y')).modelSelection,
+      const TextSelection.collapsed(offset: 8),
     );
   });
 
@@ -610,6 +661,213 @@ void main() {
 
   group('selection mode', selectionTests);
   group('reorder mode', reorderTests);
+  group('editing mode', editingTests);
+  group('view mode', viewModeTests);
+}
+
+void viewModeTests() {
+  Future<void> toggle(WidgetTester tester) async {
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+  }
+
+  /// The + buttons that can be seen. A hidden one has no tooltip.
+  Finder plusButtons() => find.byTooltip('Add one');
+
+  testWidgets('the button locks and unlocks, and reports it', (tester) async {
+    final doc = DocumentController(parseDocument('# L\n- [ ] a\n'));
+    addTearDown(doc.dispose);
+    final changes = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomePage(
+          document: doc,
+          onOpenSettings: () {},
+          onTapTitle: () {},
+          onViewModeChanged: changes.add,
+        ),
+      ),
+    );
+    expect(find.byIcon(Icons.lock_open), findsOneWidget);
+    final width = tester.getSize(itemField('a')).width;
+
+    await toggle(tester);
+    expect(find.byIcon(Icons.lock), findsOneWidget);
+    expect(changes, [true]);
+    // + is hidden, keeping its room.
+    expect(plusButtons(), findsNothing);
+    expect(tester.getSize(itemField('a')).width, width);
+    expect(find.byTooltip('Reorder'), findsNothing);
+    expect(find.byTooltip('Settings'), findsNothing);
+    expect(find.byTooltip('Switch file'), findsNothing);
+
+    await toggle(tester);
+    expect(find.byIcon(Icons.lock_open), findsOneWidget);
+    expect(changes, [true, false]);
+    expect(plusButtons(), findsOneWidget);
+    expect(find.byTooltip('Reorder'), findsOneWidget);
+    expect(find.byTooltip('Switch file'), findsOneWidget);
+  });
+
+  testWidgets('starts in view mode when asked', (tester) async {
+    final doc = DocumentController(parseDocument('# L\n- [ ] a\n'));
+    addTearDown(doc.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: HomePage(document: doc, viewMode: true)),
+    );
+    expect(find.byIcon(Icons.lock), findsOneWidget);
+    expect(plusButtons(), findsNothing);
+  });
+
+  testWidgets('tapping anywhere on an item cycles its state', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] apples\n');
+    await toggle(tester);
+    await tester.tap(itemField('apples'));
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [x] apples\n');
+    expect(hasFocus(tester, itemField('apples')), isFalse);
+    await tester.tapAt(
+      tester.getCenter(itemField('apples')) + const Offset(100, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [x] FAILED apples\n');
+    // The icon cycles it once, not twice.
+    await tester.tap(find.byTooltip('Failed'));
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [ ] apples\n');
+  });
+
+  testWidgets('nothing can be edited, renamed or selected', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await toggle(tester);
+    expect(fieldOf(tester, itemField('a')).readOnly, isTrue);
+    expect(fieldOf(tester, nameField('L')).readOnly, isTrue);
+    await tester.tap(nameField('L'));
+    await tester.pumpAndSettle();
+    expect(hasFocus(tester, nameField('L')), isFalse);
+    expect(find.text('Editing'), findsNothing);
+
+    await tester.longPress(itemField('a'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsNothing);
+    await tester.longPress(rowIcon(Icons.check_box).first);
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsNothing);
+  });
+
+  testWidgets('the usage help is shortened and tells how to unlock', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    expect(find.textContaining('Enter adds an item'), findsOneWidget);
+    await toggle(tester);
+    expect(find.textContaining('Enter adds an item'), findsNothing);
+    expect(find.textContaining('to edit them again'), findsOneWidget);
+    await toggle(tester);
+    expect(find.textContaining('Enter adds an item'), findsOneWidget);
+  });
+
+  testWidgets('the ⋯ menu is hidden, keeping the row height', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    final height = tester.getSize(find.byType(ListHeader)).height;
+    await toggle(tester);
+    expect(find.byTooltip('List actions'), findsNothing);
+    expect(find.byType(PopupMenuButton<ListAction>), findsNothing);
+    expect(tester.getSize(find.byType(ListHeader)).height, height);
+  });
+
+  testWidgets('locking ends editing', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await focusItem(tester, 'a', 0);
+    await toggle(tester);
+    expect(hasFocus(tester, itemField('a')), isFalse);
+    expect(find.text('Editing'), findsNothing);
+  });
+
+  testWidgets('the button hides above the keyboard and in other modes', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+    expect(find.byType(FloatingActionButton), findsNothing);
+    tester.view.resetViewInsets();
+    await tester.pumpAndSettle();
+    expect(find.byType(FloatingActionButton), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Reorder'));
+    await tester.pumpAndSettle();
+    expect(find.byType(FloatingActionButton), findsNothing);
+  });
+}
+
+void editingTests() {
+  testWidgets('a focused field shows Done, which ends it', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    expect(find.text('Editing'), findsNothing);
+    await focusItem(tester, 'a', 0);
+    expect(find.text('Editing'), findsOneWidget);
+    // Reorder stays at hand.
+    expect(find.byTooltip('Reorder'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Done'));
+    await tester.pumpAndSettle();
+    expect(hasFocus(tester, itemField('a')), isFalse);
+    expect(find.text('Editing'), findsNothing);
+  });
+
+  testWidgets('a focused list name starts it too', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await tester.showKeyboard(nameField('L'));
+    await tester.pump();
+    expect(find.text('Editing'), findsOneWidget);
+  });
+
+  testWidgets('the back button ends it', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await focusItem(tester, 'a', 0);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(hasFocus(tester, itemField('a')), isFalse);
+    expect(find.text('Editing'), findsNothing);
+    expect(find.byType(HomePage), findsOneWidget);
+  });
+
+  testWidgets('the state icon ends it', (tester) async {
+    final doc = await pump(tester, '# L\n- [ ] a\n');
+    await focusItem(tester, 'a', 0);
+    await tester.tap(rowIcon(Icons.check_box_outline_blank));
+    await tester.pumpAndSettle();
+    expect(serialized(doc), '# L\n- [x] a\n');
+    expect(hasFocus(tester, itemField('a')), isFalse);
+    expect(find.text('Editing'), findsNothing);
+  });
+
+  testWidgets('it stays on while the ⋯ menu is open, and an entry ends it', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [x] a\n');
+    await focusItem(tester, 'a', 0);
+    await tester.tap(rowIcon(Icons.more_horiz));
+    await tester.pumpAndSettle();
+    expect(find.text('Editing'), findsOneWidget);
+    await tester.tap(find.text('Reset'));
+    await tester.pumpAndSettle();
+    expect(hasFocus(tester, itemField('a')), isFalse);
+    expect(find.text('Editing'), findsNothing);
+  });
+
+  testWidgets('a dismissed ⋯ menu keeps it', (tester) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await focusItem(tester, 'a', 0);
+    await tester.tap(rowIcon(Icons.more_horiz));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(10, 300));
+    await tester.pumpAndSettle();
+    expect(find.text('Editing'), findsOneWidget);
+    expect(hasFocus(tester, itemField('a')), isTrue);
+  });
 }
 
 void reorderTests() {
@@ -783,6 +1041,32 @@ void selectionTests() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('long-pressing the text of an item enters selection mode', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] apples\n- [ ] b\n');
+    await focusItem(tester, 'b', 0);
+    await tester.longPress(itemField('apples'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+    expect(hasFocus(tester, itemField('b')), isFalse);
+    expect(
+      fieldOf(tester, itemField('apples')).controller!.selection.isCollapsed,
+      isTrue,
+    );
+  });
+
+  testWidgets('long-pressing the empty part of an item enters it too', (
+    tester,
+  ) async {
+    await pump(tester, '# L\n- [ ] a\n');
+    await tester.longPressAt(
+      tester.getCenter(itemField('a')) + const Offset(100, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+  });
+
   testWidgets('long-pressing a state icon enters selection mode', (
     tester,
   ) async {
@@ -876,13 +1160,9 @@ void selectionTests() {
   testWidgets('the unnamed list placeholder is greyed', (tester) async {
     await pump(tester, '- [ ] a\n');
     final context = tester.element(find.byType(HomePage));
-    final field = tester.widget<TextField>(
-      find.descendant(
-        of: find.byType(ListHeader),
-        matching: find.byType(TextField),
-      ),
-    );
-    expect(field.decoration!.hintStyle!.color, Theme.of(context).hintColor);
+    final text = tester.widget<Text>(find.text(ListHeader.placeholder));
+    expect(text.style!.color, Theme.of(context).hintColor);
+    expect(text.style!.fontWeight, FontWeight.bold);
   });
 
   testWidgets('deselecting the last item leaves selection mode', (

@@ -211,6 +211,48 @@ OpResult? backspaceAtStart(TodoDocument doc, String itemId) {
   );
 }
 
+/// Backspace in the empty name of list [listId]. A list holding only an
+/// empty item is deleted; any other list is merged into the one above, like
+/// Backspace at the start of its first item. The cursor goes to the end of
+/// the line above. Returns null if nothing happens: the name isn't empty, or
+/// there is no list to merge into.
+OpResult? backspaceListName(TodoDocument doc, String listId) {
+  final i = doc.listIndexOf(listId);
+  if (i < 0) return null;
+  final list = doc.lists[i];
+  if (list.name.isNotEmpty) return null;
+
+  if (_isOnlyEmptyItem(list)) {
+    if (doc.lists.length == 1) return null;
+    final lists = [...doc.lists]..removeAt(i);
+    // The first list has no line above: its follower's name gets the cursor.
+    final CursorTarget cursor;
+    if (i == 0) {
+      cursor = CursorTarget.listName(lists[0].id, lists[0].name.length);
+    } else {
+      final last = lists[i - 1].items.last;
+      cursor = CursorTarget.item(last.id, last.text.length);
+    }
+    return OpResult(normalize(TodoDocument(lists)), cursor);
+  }
+
+  if (i == 0) return null;
+  final prevList = doc.lists[i - 1];
+  final dropPrev = _isOnlyEmptyItem(prevList);
+  final lists = [...doc.lists]
+    ..[i - 1] = prevList.copyWith(
+      items: [if (!dropPrev) ...prevList.items, ...list.items],
+    )
+    ..removeAt(i);
+  final last = prevList.items.last;
+  return OpResult(
+    normalize(TodoDocument(lists)),
+    dropPrev
+        ? CursorTarget.item(list.items.first.id, 0)
+        : CursorTarget.item(last.id, last.text.length),
+  );
+}
+
 bool _isOnlyEmptyItem(TodoList list) =>
     list.items.length == 1 && list.items.single.text.isEmpty;
 

@@ -22,12 +22,19 @@ const uri = 'content://todo.md';
 
 final list = find.byType(SuperListView);
 
-Finder itemField(String text) => find.byWidgetPredicate(
-  (w) =>
-      w is TextField &&
-      w.controller is SentinelController &&
-      (w.controller! as SentinelController).modelText == text,
+Finder _field(Type row, String text) => find.descendant(
+  of: find.byType(row),
+  matching: find.byWidgetPredicate(
+    (w) =>
+        w is TextField &&
+        w.controller is SentinelController &&
+        (w.controller! as SentinelController).modelText == text,
+  ),
 );
+
+Finder itemField(String text) => _field(ItemRow, text);
+
+Finder nameField(String name) => _field(ListHeader, name);
 
 Future<void> pumpApp(WidgetTester tester, FakeStorage storage) async {
   await tester.pumpWidget(App(storage: storage));
@@ -88,7 +95,7 @@ void main() {
     await pumpApp(tester, storage);
     await tester.tap(find.text('Open existing file'));
     await tester.pumpAndSettle();
-    expect(find.text('Groceries'), findsOneWidget);
+    expect(nameField('Groceries'), findsOneWidget);
     expect(itemField('Milk'), findsOneWidget);
     expect(
       find.descendant(
@@ -326,6 +333,63 @@ void main() {
       expect(prefs.getString('textSize'), 'larger');
       await restart(tester, storage);
       expect(rowHeight(), 60);
+    });
+
+    testWidgets('view mode persists', (tester) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri});
+      final storage = FakeStorage({uri: '# L\n- [ ] Milk\n'});
+      await pumpApp(tester, storage);
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('viewMode'), isTrue);
+      await restart(tester, storage);
+      expect(find.byIcon(Icons.lock), findsOneWidget);
+      expect(find.byTooltip('Settings'), findsNothing);
+    });
+
+    testWidgets('the colours follow the phone, or are chosen, and persist', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'fileUri': uri});
+      final storage = FakeStorage({uri: '# L\n- [ ] Milk\n'});
+      await pumpApp(tester, storage);
+      Brightness brightness() =>
+          Theme.of(tester.element(find.byType(ItemRow))).brightness;
+      Future<void> pick(String option) async {
+        await openSettings(tester);
+        await tester.tap(find.text('Colors'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SimpleDialog),
+            matching: find.text(option),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(option), findsOneWidget);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      }
+
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      await tester.pumpAndSettle();
+      expect(brightness(), Brightness.dark);
+
+      await pick('Light');
+      expect(brightness(), Brightness.light);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('colorMode'), 'light');
+      await restart(tester, storage);
+      expect(brightness(), Brightness.light);
+
+      await pick('Same as phone');
+      expect(brightness(), Brightness.dark);
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      await pick('Dark');
+      expect(brightness(), Brightness.dark);
     });
 
     testWidgets('changing the locale re-formats totals, not the file', (

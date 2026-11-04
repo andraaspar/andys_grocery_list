@@ -10,8 +10,8 @@ import 'theme.dart';
 
 export 'file_switcher.dart' show fileDisplayName;
 
-/// Settings (plan §7): change file, the locale used for numbers, and the
-/// row spacing and text size.
+/// Settings (plan §7): change file, the locale used for numbers, the row
+/// spacing and text size, and light or dark colours.
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
@@ -75,6 +75,17 @@ class SettingsPage extends StatelessWidget {
     if (picked != null) await settings.setFontSize(picked);
   }
 
+  Future<void> _pickColorMode(BuildContext context) async {
+    final picked = await _pickOption(
+      context,
+      title: 'Colors',
+      options: ColorMode.values,
+      current: settings.colorMode,
+      label: (c) => Text(c.label),
+    );
+    if (picked != null) await settings.setColorMode(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -118,6 +129,12 @@ class SettingsPage extends StatelessWidget {
                 title: const Text('Text size'),
                 subtitle: Text(settings.fontSize.label),
                 onTap: () => _pickFontSize(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.contrast),
+                title: const Text('Colors'),
+                subtitle: Text(settings.colorMode.label),
+                onTap: () => _pickColorMode(context),
               ),
             ],
           );

@@ -4,7 +4,7 @@ publish_to: 'none'
 
 # name+code: the name is Android's versionName, the code its versionCode.
 # Raise the code with every release.
-version: 1.0.1+2
+version: 1.1.0+3
 
 environment:
   sdk: ^3.13.7

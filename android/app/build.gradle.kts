@@ -23,6 +23,13 @@ android {
         versionName = flutter.versionName
     }
 
+    // No Google-encrypted dependency list in the APK: F-Droid rejects the
+    // extra signing block.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     buildTypes {
         release {
             // Local release builds use the debug key so they install directly.

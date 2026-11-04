@@ -291,6 +291,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       onGenerateTitle: (_) => appName(),
       theme: buildTheme(Brightness.light, spacing: spacing),
       darkTheme: buildTheme(Brightness.dark, spacing: spacing),
+      themeMode: (_settingsController?.colorMode ?? ColorMode.system).themeMode,
       builder: (context, child) {
         final media = MediaQuery.of(context);
         final textScaler = ScaledTextScaler(media.textScaler, fontSize.factor);
@@ -329,6 +330,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       scrollMemory: ScrollMemory(_settings!, doc.uri!),
       helpExpanded: _settings!.helpExpanded,
       onHelpExpandedChanged: _settings!.setHelpExpanded,
+      viewMode: _settings!.viewMode,
+      onViewModeChanged: _settings!.setViewMode,
       onOpenSettings: _openSettings,
       title: _fileName,
       onTapTitle: _switchFile,

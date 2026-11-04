@@ -85,6 +85,49 @@ void main() {
     });
   });
 
+  group('Backspace in an empty list name', () {
+    test('merges the list into the one above', () {
+      final d = doc('# A\n- [x] a\n\n# \n- [ ] b\n- [ ] c\n');
+      final r = backspaceListName(d, d.lists[1].id)!;
+      expect(md(r.doc), '# A\n- [x] a\n- [ ] b\n- [ ] c\n');
+      // The end of the line above.
+      expect(r.cursor, CursorTarget.item(idAt(d, 0, 0), 1));
+    });
+
+    test('merging drops the previous list\'s only empty item', () {
+      final d = doc('# A\n- [ ] \n\n# \n- [ ] b\n');
+      final r = backspaceListName(d, d.lists[1].id)!;
+      expect(md(r.doc), '# A\n- [ ] b\n');
+      expect(r.cursor, CursorTarget.item(idAt(d, 1, 0), 0));
+    });
+
+    test('deletes a list holding only an empty item', () {
+      final d = doc('# A\n- [ ] a\n\n# \n- [ ] \n\n# C\n- [ ] c\n');
+      final r = backspaceListName(d, d.lists[1].id)!;
+      expect(md(r.doc), '# A\n- [ ] a\n\n# C\n- [ ] c\n');
+      expect(r.cursor, CursorTarget.item(idAt(d, 0, 0), 1));
+    });
+
+    test('deleting the first list moves to the next name', () {
+      final d = doc('# \n- [ ] \n\n# B\n- [ ] b\n');
+      final r = backspaceListName(d, d.lists[0].id)!;
+      expect(md(r.doc), '# B\n- [ ] b\n');
+      expect(r.cursor, CursorTarget.listName(d.lists[1].id, 1));
+    });
+
+    test('does nothing in the only list, or the first one with items', () {
+      final only = doc('# \n- [ ] \n');
+      expect(backspaceListName(only, only.lists[0].id), isNull);
+      final first = doc('# \n- [ ] a\n\n# B\n- [ ] b\n');
+      expect(backspaceListName(first, first.lists[0].id), isNull);
+    });
+
+    test('does nothing in a named list', () {
+      final d = doc('# A\n- [ ] a\n\n# B\n- [ ] \n');
+      expect(backspaceListName(d, d.lists[1].id), isNull);
+    });
+  });
+
   group('paste', () {
     test('plain detection', () {
       expect(isPlainPaste('3x eggs'), isTrue);

@@ -39,7 +39,13 @@ class HomePage extends StatefulWidget {
     this.onHelpExpandedChanged,
     this.title,
     this.onTapTitle,
+    this.viewMode = false,
+    this.onViewModeChanged,
   });
+
+  /// Whether the page starts in view mode, and where its changes go.
+  final bool viewMode;
+  final ValueChanged<bool>? onViewModeChanged;
 
   /// Tapping the title opens the file switcher. Null: it can't be tapped.
   final VoidCallback? onTapTitle;
@@ -112,7 +118,7 @@ typedef _Drop = ({String? listId, int index, String rowKey, bool below});
 
 class _NameField {
   _NameField(this.controller, this.focusNode);
-  final TextEditingController controller;
+  final SentinelController controller;
   final FocusNode focusNode;
 }
 
@@ -126,6 +132,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // Reorder mode (plan §6a).
   bool _reordering = false;
+
+  /// Editing mode: an item or a list name has the focus. The app bar shows
+  /// Done, which, like the back button, ends it.
+  bool _editing = false;
+
+  /// View mode: nothing can be edited, deleted or moved; tapping an item
+  /// changes its state. The button at the bottom right switches it.
+  late bool _viewing = widget.viewMode;
   _Drag? _drag;
   _Drop? _drop;
   Offset? _pointer;
@@ -155,6 +169,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _document.addListener(_onDocumentChanged);
     _document.onReloadedBeforeSave = _onReloadedBeforeSave;
     _selection.addListener(_onSelectionChanged);
+    FocusManager.instance.addListener(_onFocusChanged);
     _syncFields();
     _buildRows();
     final anchor = widget.scrollMemory?.load();
@@ -173,6 +188,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     _document.removeListener(_onDocumentChanged);
     _selection.removeListener(_onSelectionChanged);
+    FocusManager.instance.removeListener(_onFocusChanged);
     _selection.dispose();
     for (final f in _items.values) {
       f.controller.dispose();
@@ -278,9 +294,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (final list in doc.lists) {
       listIds.add(list.id);
       final name = _names.putIfAbsent(list.id, () => _createNameField(list));
-      if (name.controller.text != list.name) {
-        name.controller.value = TextEditingValue(
-          text: list.name,
+      if (name.controller.modelText != list.name) {
+        name.controller.setModel(
+          list.name,
           selection: TextSelection.collapsed(offset: list.name.length),
         );
       }
@@ -336,10 +352,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return _ItemField(controller, focusNode);
   }
 
-  _NameField _createNameField(TodoList list) => _NameField(
-    TextEditingController(text: list.name),
-    FocusNode(debugLabel: 'list ${list.id}'),
-  );
+  /// A sentinel controller like the items', so Backspace in an empty name
+  /// is seen too.
+  _NameField _createNameField(TodoList list) {
+    final id = list.id;
+    final controller = SentinelController(text: list.name);
+    controller.onTextChanged = (name) => _document.renameList(id, name);
+    controller.onBackspaceAtStart = () {
+      if (controller.modelText.isEmpty) _document.backspaceListName(id);
+    };
+    // Text that would be items elsewhere is plain text in a name. The
+    // single-line field has already removed any line breaks.
+    controller.onPaste = (start, end, text) {
+      final pasted = text.replaceAll(RegExp(r'[\r\n]+'), ' ');
+      final name = controller.modelText.replaceRange(start, end, pasted);
+      _document.renameList(id, name);
+      _document.focus(CursorTarget.listName(id, start + pasted.length));
+    };
+    return _NameField(controller, FocusNode(debugLabel: 'list $id'));
+  }
 
   // -------------------------------------------------------------------------
   // Scroll memory (plan §3, Scrolling)
@@ -419,7 +450,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// scrolled far away), jumps to it first and tries again.
   void _moveCursor(CursorTarget target, {int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      // Nothing is edited in view mode.
+      if (!mounted || _viewing) return;
       final FocusNode? node = target.isListName
           ? _names[target.id]?.focusNode
           : _items[target.id]?.focusNode;
@@ -442,10 +474,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
 
       if (target.isListName) {
-        final c = _names[target.id]!.controller;
-        c.selection = TextSelection(
-          baseOffset: target.start.clamp(0, c.text.length),
-          extentOffset: target.end.clamp(0, c.text.length),
+        _names[target.id]!.controller.setModelSelection(
+          target.start,
+          target.end,
         );
       } else {
         _items[target.id]!.controller.setModelSelection(
@@ -457,6 +488,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _revealFocusedRow();
     });
   }
+
+  /// The item's or list name's focus node that this page's focus scope
+  /// last focused, if any. It keeps it while a menu or dialog is open over
+  /// the page, so editing mode doesn't flicker off and on around them.
+  FocusNode? _editedNode() {
+    final child = FocusScope.of(context).focusedChild;
+    if (child == null) return null;
+    for (final f in _items.values) {
+      if (f.focusNode == child) return child;
+    }
+    for (final f in _names.values) {
+      if (f.focusNode == child) return child;
+    }
+    return null;
+  }
+
+  void _onFocusChanged() {
+    if (!mounted) return;
+    final editing = _editedNode() != null;
+    if (editing != _editing) setState(() => _editing = editing);
+  }
+
+  /// Leaves editing mode: the field loses the focus, and with it the
+  /// keyboard, the cursor and its handle.
+  void _endEditing() => _editedNode()?.unfocus();
 
   /// The row key of the focused item or list name, if any.
   String? _focusedRowKey() {
@@ -582,43 +638,64 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _showMessage('Deleted ${_countItems(ids.length)}', undo: undo);
   }
 
+  /// Reorder and Settings, on the normal and the editing bar.
+  List<Widget> _pageActions() {
+    final openSettings = widget.onOpenSettings;
+    return [
+      IconButton(
+        icon: const Icon(Icons.swap_vert),
+        tooltip: 'Reorder',
+        onPressed: _enterReorder,
+      ),
+      if (openSettings != null)
+        IconButton(
+          icon: const Icon(Icons.settings_outlined),
+          tooltip: 'Settings',
+          onPressed: () {
+            // Coming back would otherwise put the focus, and the keyboard,
+            // back on the field.
+            _endEditing();
+            openSettings();
+          },
+        ),
+    ];
+  }
+
   AppBar _buildAppBar() {
-    if (!_selection.active && !_reordering) {
-      final openSettings = widget.onOpenSettings;
+    final editing = _editing && !_selection.active && !_reordering && !_viewing;
+    if (!_selection.active && !_reordering && !editing) {
       return AppBar(
         title: _buildTitle(),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_vert),
-            tooltip: 'Reorder',
-            onPressed: _enterReorder,
-          ),
-          if (openSettings != null)
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              tooltip: 'Settings',
-              onPressed: openSettings,
-            ),
-        ],
+        actions: _viewing ? null : _pageActions(),
       );
     }
     // Contextual bars, coloured so the modes are easy to tell apart.
-    final scheme = Theme.of(context).colorScheme;
-    if (_reordering) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    // The theme's icon themes carry their own colour, which would win over
+    // the bar's foreground colour.
+    final icons = (theme.appBarTheme.iconTheme ?? const IconThemeData())
+        .copyWith(color: scheme.onInverseSurface);
+    if (_reordering || editing) {
       return AppBar(
         backgroundColor: scheme.inverseSurface,
         foregroundColor: scheme.onInverseSurface,
+        iconTheme: icons,
+        actionsIconTheme: icons,
         leading: IconButton(
           icon: const Icon(Icons.check),
           tooltip: 'Done',
-          onPressed: _leaveReorder,
+          onPressed: _reordering ? _leaveReorder : _endEditing,
         ),
-        title: const Text('Drag to reorder'),
+        title: Text(_reordering ? 'Drag to reorder' : 'Editing'),
+        actions: editing ? _pageActions() : null,
       );
     }
     return AppBar(
       backgroundColor: scheme.inverseSurface,
       foregroundColor: scheme.onInverseSurface,
+      iconTheme: icons,
+      actionsIconTheme: icons,
       leading: IconButton(
         icon: const Icon(Icons.close),
         tooltip: 'Close',
@@ -647,7 +724,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
-    final onTap = widget.onTapTitle;
+    // The file can't be switched in view mode.
+    final onTap = _viewing ? null : widget.onTapTitle;
     if (onTap == null) return text;
     return Tooltip(
       message: 'Switch file',
@@ -675,6 +753,39 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // show the floating row. The pointer is followed by a [Listener] around
   // the whole list instead, as a [Draggable] stops reporting once its row
   // is scrolled away and unmounted.
+
+  // -------------------------------------------------------------------------
+  // View mode
+
+  void _toggleViewMode() {
+    final viewing = !_viewing;
+    if (viewing) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      _selection.clear();
+    }
+    setState(() => _viewing = viewing);
+    widget.onViewModeChanged?.call(viewing);
+  }
+
+  /// Red and locked in view mode, green and open in edit mode.
+  Widget _buildModeButton() {
+    final states = StateColors.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return FloatingActionButton(
+      onPressed: _toggleViewMode,
+      tooltip: _viewing ? 'Switch to edit mode' : 'Switch to view mode',
+      backgroundColor: _viewing ? states.failed : states.done,
+      // The dark theme's state colours are light.
+      foregroundColor: dark ? Colors.black : Colors.white,
+      child: Icon(_viewing ? Icons.lock : Icons.lock_open),
+    );
+  }
+
+  /// How much room is left below the list, so the button doesn't cover its
+  /// end: the button's height and its margins.
+  static const _modeButtonRoom = 56.0 + 2 * 16;
+
+  // -------------------------------------------------------------------------
 
   void _enterReorder() {
     FocusManager.instance.primaryFocus?.unfocus();
@@ -989,14 +1100,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Read here, above the Scaffold, which takes the keyboard's height out
+    // of its body's MediaQuery.
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     return PopScope(
-      // Back leaves selection mode instead of the app.
-      // Back leaves reorder mode too.
-      canPop: !_selection.active && !_reordering,
+      // Back leaves selection, reorder or editing mode instead of the app.
+      canPop: !_selection.active && !_reordering && !_editing,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (_reordering) {
           _leaveReorder();
+        } else if (_editing) {
+          _endEditing();
         } else {
           _selection.clear();
         }
@@ -1004,6 +1119,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       child: Scaffold(
         appBar: _buildAppBar(),
         bottomNavigationBar: const NavigationBarBacking(),
+        // Hidden in the other modes, and above the keyboard, where it
+        // would cover the rows being edited.
+        floatingActionButton: _selection.active || _reordering || keyboardOpen
+            ? null
+            : _buildModeButton(),
         body: NotificationListener<ScrollEndNotification>(
           onNotification: (_) {
             _scheduleAnchorSave();
@@ -1019,6 +1139,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               listController: _listController,
               controller: _scrollController,
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+              padding: const EdgeInsets.only(bottom: _modeButtonRoom),
               itemCount: _rows.length,
               findChildIndexCallback: (key) =>
                   key is ValueKey<String> ? _rowIndex[key.value] : null,
@@ -1065,9 +1186,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final header = ListHeader(
           controller: f.controller,
           focusNode: f.focusNode,
-          onChanged: (name) => _document.renameList(list.id, name),
           onSubmitted: () => _focusFirstItem(list),
-          onAction: (action) => _onListAction(list, action),
+          viewMode: _viewing,
+          onAction: (action) {
+            _endEditing();
+            _onListAction(list, action);
+          },
           dragHandle: drag?.handle,
         );
         return drag?.wrap(header) ?? header;
@@ -1081,11 +1205,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           item: item,
           controller: f.controller,
           focusNode: f.focusNode,
-          onCycleState: () => _document.cycleState(item.id),
+          onCycleState: () {
+            _endEditing();
+            _document.cycleState(item.id);
+          },
           onIncrement: selecting || _reordering
               ? null
               : () => _document.incrementQuantity(item.id),
-          onLongPressIcon: _reordering ? null : () => _enterSelection(item.id),
+          onLongPressIcon: _reordering || _viewing
+              ? null
+              : () => _enterSelection(item.id),
+          viewMode: _viewing,
           selectionMode: selecting,
           selected: _selection.contains(item.id),
           onToggleSelection: () => _selection.toggle(item.id),
@@ -1097,6 +1227,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       case _HelpRow():
         return UsageHelp(
           initiallyExpanded: _helpExpanded,
+          viewMode: _viewing,
           onExpandedChanged: (expanded) {
             _helpExpanded = expanded;
             widget.onHelpExpandedChanged?.call(expanded);

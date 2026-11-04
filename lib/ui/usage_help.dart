@@ -11,7 +11,12 @@ class UsageHelp extends StatefulWidget {
     super.key,
     this.initiallyExpanded = true,
     this.onExpandedChanged,
+    this.viewMode = false,
   });
+
+  /// View mode gets fewer tips: only what can be done in it, and how to
+  /// leave it.
+  final bool viewMode;
 
   final bool initiallyExpanded;
   final ValueChanged<bool>? onExpandedChanged;
@@ -58,73 +63,106 @@ class _UsageHelpState extends State<UsageHelp> {
       ),
     );
 
+    // The states in order, after [lead] and before [tail].
+    InlineSpan cycle(String lead, String tail) => TextSpan(
+      children: [
+        TextSpan(text: lead),
+        stateIcon(ItemState.newItem, null),
+        const TextSpan(text: ' new → '),
+        stateIcon(ItemState.done, states.done),
+        const TextSpan(text: ' done → '),
+        stateIcon(ItemState.failed, states.failed),
+        TextSpan(text: tail),
+      ],
+    );
+
+    final viewTips = [
+      tip(Icons.touch_app_outlined, cycle('Tap an item: ', ' failed.')),
+      tip(
+        Icons.lock_open,
+        const TextSpan(
+          text:
+              'View mode keeps the lists safe from changes. Tap the lock at '
+              'the bottom right to edit them again.',
+        ),
+      ),
+    ];
+
     final tips = Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          tip(
-            Icons.touch_app_outlined,
-            TextSpan(
-              children: [
-                const TextSpan(text: 'Tap a box: '),
-                stateIcon(ItemState.newItem, null),
-                const TextSpan(text: ' new → '),
-                stateIcon(ItemState.done, states.done),
-                const TextSpan(text: ' done → '),
-                stateIcon(ItemState.failed, states.failed),
-                const TextSpan(
-                  text: ' failed. Long-press it or + to select items.',
+        children: widget.viewMode
+            ? viewTips
+            : [
+                tip(
+                  Icons.touch_app_outlined,
+                  cycle(
+                    'Tap a box: ',
+                    ' failed. Long-press an item to select it.',
+                  ),
+                ),
+                tip(
+                  Icons.keyboard_return,
+                  const TextSpan(
+                    text:
+                        'Enter adds an item. Enter on an empty item starts a new '
+                        'list.',
+                  ),
+                ),
+                tip(
+                  Icons.backspace_outlined,
+                  const TextSpan(
+                    text:
+                        'Backspace at the start of an item joins it to the one '
+                        'above, or the list to the list above. In an empty '
+                        'list name, it joins the list up, or removes it if it '
+                        'has no items.',
+                  ),
+                ),
+                tip(
+                  Icons.add,
+                  const TextSpan(text: 'Counts up: Milk → 2x Milk.'),
+                ),
+                tip(
+                  Icons.sell_outlined,
+                  const TextSpan(
+                    text:
+                        'End an item with a price, like Milk 1.29. Done items add '
+                        'up to the total.',
+                  ),
+                ),
+                tip(
+                  Icons.content_paste,
+                  const TextSpan(
+                    text: 'Paste several lines to add many items at once.',
+                  ),
+                ),
+                tip(
+                  Icons.swap_vert,
+                  const TextSpan(
+                    text:
+                        'Tap ⇅ at the top to move items and lists: drag the ≡ '
+                        'handle, or long-press a row.',
+                  ),
+                ),
+                tip(
+                  Icons.lock_outline,
+                  const TextSpan(
+                    text:
+                        'The lock at the bottom right switches to view mode: '
+                        'tap anywhere on an item to change its state, and nothing '
+                        'gets edited or deleted by accident.',
+                  ),
+                ),
+                tip(
+                  Icons.more_horiz,
+                  const TextSpan(
+                    text:
+                        'Next to a list name: reset, copy or delete the list.',
+                  ),
                 ),
               ],
-            ),
-          ),
-          tip(
-            Icons.keyboard_return,
-            const TextSpan(
-              text:
-                  'Enter adds an item. Enter on an empty item starts a new '
-                  'list.',
-            ),
-          ),
-          tip(
-            Icons.backspace_outlined,
-            const TextSpan(
-              text:
-                  'Backspace at the start of an item joins it to the one '
-                  'above, or the list to the list above.',
-            ),
-          ),
-          tip(Icons.add, const TextSpan(text: 'Counts up: Milk → 2x Milk.')),
-          tip(
-            Icons.sell_outlined,
-            const TextSpan(
-              text:
-                  'End an item with a price, like Milk 1.29. Done items add '
-                  'up to the total.',
-            ),
-          ),
-          tip(
-            Icons.content_paste,
-            const TextSpan(
-              text: 'Paste several lines to add many items at once.',
-            ),
-          ),
-          tip(
-            Icons.swap_vert,
-            const TextSpan(
-              text:
-                  'Tap ⇅ at the top to move items and lists: drag the ≡ '
-                  'handle, or long-press a row.',
-            ),
-          ),
-          tip(
-            Icons.more_horiz,
-            const TextSpan(
-              text: 'Next to a list name: reset, copy or delete the list.',
-            ),
-          ),
-        ],
       ),
     );
 

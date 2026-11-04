@@ -1,0 +1,5 @@
+- View mode: the lock button at the bottom right locks the lists while you shop. Tap anywhere on an item to change its state, with nothing edited, deleted or moved by accident.
+- Editing mode: while typing, the title bar shows ✓ to finish editing.
+- Long-press anywhere on an item to select it.
+- Backspace in an empty list name joins the list to the one above, or removes it if it has no items.
+- Settings: choose light or dark colors, or follow the phone.

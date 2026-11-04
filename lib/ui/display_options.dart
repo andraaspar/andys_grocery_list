@@ -36,6 +36,21 @@ enum FontSize {
       values.firstWhere((v) => v.name == name, orElse: () => normal);
 }
 
+/// Light or dark colours, chosen in Settings.
+enum ColorMode {
+  system('Same as phone', ThemeMode.system),
+  light('Light', ThemeMode.light),
+  dark('Dark', ThemeMode.dark);
+
+  const ColorMode(this.label, this.themeMode);
+
+  final String label;
+  final ThemeMode themeMode;
+
+  static ColorMode fromName(String? name) =>
+      values.firstWhere((v) => v.name == name, orElse: () => system);
+}
+
 /// The phone's text scaling, multiplied by [factor].
 class ScaledTextScaler extends TextScaler {
   const ScaledTextScaler(this.base, this.factor);

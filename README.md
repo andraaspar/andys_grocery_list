@@ -25,18 +25,22 @@ foreground and every few seconds while it is open.
 
 - **Three item states** – tap a box to cycle *new → done → failed*.
 - **Quick entry** – Enter adds an item, Enter on an empty item starts a new
-  list, Backspace at the start of an item joins it to the one above.
-  Pasting several lines adds many items at once.
+  list, Backspace at the start of an item joins it to the one above, and in
+  an empty list name joins the list up. Pasting several lines adds many
+  items at once.
 - **Counts and prices** – the + button counts items up (`Milk` →
   `2x Milk`). End an item with a price and the done items add up to a total
   under each list, using the number format of your chosen locale.
 - **Selection and reordering** – long-press to select items; reorder mode
   lets you drag items and whole lists around.
+- **View mode** – the lock button at the bottom right locks the lists while
+  you shop: tap anywhere on an item to tick it off, with no editing,
+  deleting or moving by accident.
 - **List actions** – reset, copy or delete a list; deletes can be undone.
 - **Files** – open an existing file or create a new one through the system
   file picker, and switch between recently used files from the title bar.
-- **Settings** – number format locale, spacing and text size. Light and dark
-  themes follow the system.
+- **Settings** – number format locale, spacing, text size, and light or dark
+  colours (or follow the system).
 
 ## Building
 
