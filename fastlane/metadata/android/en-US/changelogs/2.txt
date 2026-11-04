@@ -1,0 +1,1 @@
+Verify the Gradle download with a checksum when building.
